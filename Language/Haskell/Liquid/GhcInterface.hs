@@ -106,6 +106,12 @@ definedVars           = concatMap defs
 -- | Extracting CoreBindings From File ---------------------------
 ------------------------------------------------------------------
 
+getGhcSpecifications cfg targetName vars (fn, spec) 
+  = do _     <- getGhcModGuts1 fn
+       env   <- getSession
+       spec' <- liftIO $ makeGhcSpec cfg targetName vars env spec
+       return $ spec'
+
 getGhcModGuts1 fn = do
    liftIO $ deleteBinFiles fn
    target <- guessTarget fn Nothing
@@ -179,34 +185,53 @@ moduleSpec cfg vars target mg paths
        impSpec    <- getSpecs paths impNames [Spec, Hs, LHs] 
        let spec    = [ (n,  Ms.expandRTAliases s) | (n, s) <- tgtSpec : impSpec  ]
        let imps    = sortNub $ impNames ++ [symbolString x | (_, s) <- spec, x <- Ms.imports s]
-       ghcSpec    <- mconcat <$> forM spec (makeGhcSpecByModule cfg name vars) 
-       -- setContext [IIModule $ moduleName $ mgi_module mg]
-       -- env        <- getSession
+       setContext [IIModule $ moduleName $ mgi_module mg]
+       mods       <- mkMods <$> getSession
+       ghcSpec    <- mconcat <$> forM spec (makeGhcSpecByModule mods cfg name vars) 
        -- ghcSpec    <- liftIO $ makeGhcSpec cfg name vars env spec
        return      (ghcSpec, imps, Ms.includes $ snd tgtSpec)
-    where impNames = allDepNames  mg
-          name     = mgi_namestring mg
+    where 
+       impNames    = allDepNames  mg
+       name        = mgi_namestring mg
+       mkMods      = modSet . hsc_mod_graph
 
-allDepNames mg    = allNames'
-  where allNames' = sortNub impNames
-        impNames  = moduleNameString <$> (depNames mg ++ dirImportNames mg) 
+modSet = S.fromList . traceShow "modSet" .  map (moduleNameString . moduleName . ms_mod)
+
+allDepNames mg = allNames'
+  where 
+    allNames'  = sortNub impNames
+    impNames   = moduleNameString <$> (depNames mg ++ dirImportNames mg) 
 
 depNames       = map fst        . dep_mods      . mgi_deps
 dirImportNames = map moduleName . moduleEnvKeys . mgi_dir_imps  
 targetName     = dropExtension  . takeFileName 
--- starName fn    = combine dir ('*':f) where (dir, f) = splitFileName fn
 starName       = ("*" ++)
 
-makeGhcSpecByModule cfg targetName vars (name, spec) 
-  = do setContextWithName name 
+makeGhcSpecByModule mods cfg targetName vars (name, spec) 
+  = makeGhcSpecByModule' cfg targetName vars (name, spec)
+  -- | name `S.member` mods 
+  -- | otherwise            = return mempty
+
+makeGhcSpecByModule' cfg targetName vars ((file, name), spec)
+  | isSrcfile file && name /= targetName
+  = getGhcSpecifications cfg targetName vars (name, spec) 
+  | otherwise
+  = do setContextWithName targetName name
        env   <- getSession
        spec' <- liftIO $ makeGhcSpec cfg targetName vars env spec
        return $ spec'
+  
 
+isSrcfile f = isExtFile Hs f || isExtFile LHs f
 
-setContextWithName n = setContext [nameIImport n]
+setContextWithName t n = setContext [nameII t n]
   where 
-    nameIImport name = GHC.IIDecl $ (GHC.simpleImportDecl . GHC.mkModuleName $ name) {GHC.ideclQualified = True} 
+    nameII t n         = IIModule   $ mkModuleName t
+
+    --  | t == n         = IIModule   $ mkModuleName t
+    --   | otherwise      = GHC.IIDecl $ (GHC.simpleImportDecl . GHC.mkModuleName $ "Prelude") {GHC.ideclQualified = True} 
+      -- | otherwise      = IIModule   $ mkModuleName n 
+      -- | otherwise      = GHC.IIDecl $ (GHC.simpleImportDecl . GHC.mkModuleName $ n) -- {GHC.ideclQualified = True} 
 
 getSpecs paths names exts
   = do fs    <- sortNub <$> moduleImports exts paths names 
@@ -234,14 +259,14 @@ transParseSpecs _ _ _ spec []
   = return spec
 transParseSpecs exts paths seenFiles spec newFiles 
   = do newSpec   <- liftIO $ mapM parseSpec newFiles 
-       impFiles  <- moduleImports exts paths [symbolString x | (n,s) <- newSpec, x <- Ms.imports s]
+       impFiles  <- moduleImports exts paths [symbolString x | (_, s) <- newSpec, x <- Ms.imports s]
        let seenFiles' = seenFiles  `S.union` (S.fromList newFiles)
        let spec'      = spec ++ newSpec
        let newFiles'  = [f | f <- impFiles, not (f `S.member` seenFiles')]
        transParseSpecs exts paths seenFiles' spec' newFiles'
 
 parseSpec (name, file) 
-  = Ex.catch ((name,) <$> parseSpec' name file) $ \(e :: Ex.IOException) ->
+  = Ex.catch (((file, name),) <$> parseSpec' name file) $ \(e :: Ex.IOException) ->
       ioError $ userError $ "Hit exception: " ++ (show e) ++ " while parsing Spec file: " ++ file ++ " for module " ++ name 
 
 parseSpec' name file 

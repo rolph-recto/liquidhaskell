@@ -1,5 +1,7 @@
 module Language.Haskell.Liquid.Prelude where
 
+import Prelude
+
 import Foreign.C.Types          (CSize(..))
 
 -------------------------------------------------------------------

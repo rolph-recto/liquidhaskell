@@ -140,6 +140,7 @@ validTyVar _       = False
 tvId α = {- traceShow ("tvId: α = " ++ show α) $ -} showPpr α ++ show (varUnique α)
 
 tracePpr s x = trace ("\nTrace: [" ++ s ++ "] : " ++ showPpr x) x
+tracePP s x  = trace ("\nTrace: [" ++ s ++ "] : " ++ showpp  x) x
 
 pprShow = text . show
 

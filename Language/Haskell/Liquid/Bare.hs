@@ -36,15 +36,17 @@ import Control.Monad.Error      hiding (forM)
 import Data.Bifunctor
 
 
+import Language.Haskell.Liquid.PrettyPrint      () 
+import Language.Fixpoint.PrettyPrint            ()
+import Language.Fixpoint.Misc
+import Language.Fixpoint.Sort                   (checkSortedReftFull)
+import Language.Fixpoint.Types                  
 import Language.Fixpoint.Names                  (propConName, takeModuleNames, dropModuleNames)
 import Language.Haskell.Liquid.GhcMisc          hiding (L)
-import Language.Fixpoint.Types                  
-import Language.Fixpoint.Sort                   (checkSortedReftFull)
 import Language.Haskell.Liquid.Types
 import Language.Haskell.Liquid.RefType
 import Language.Haskell.Liquid.PredType
 import qualified Language.Haskell.Liquid.Measure as Ms
-import Language.Fixpoint.Misc
 
 import qualified Data.List           as L
 import qualified Data.HashSet        as S
@@ -58,7 +60,6 @@ import TypeRep
 makeGhcSpec, makeGhcSpec' :: Config -> String -> [Var] -> HscEnv -> Ms.Spec BareType Symbol -> IO GhcSpec 
 makeGhcSpec cfg name vars env spec 
   = checkGhcSpec <$> makeGhcSpec' cfg name vars env spec 
-
 
 makeGhcSpec' cfg name vars env spec 
   = do (tcs, dcs)      <- makeConTypes    env  name         $ Ms.dataDecls  spec 
@@ -259,10 +260,9 @@ makeAssumeSpec :: Config -> BareEnv -> [Var] -> [(LocSymbol, BareType)] -> IO [(
 makeAssumeSpec cfg env vs xbs = execBare mkAspec env
   where 
     vbs                       = joinIds vs xbs 
-    mkAspec                   = do when (not $ noCheckUnknown cfg)
-                                     $ checkDefAsserts env vbs xbs
+    mkAspec                   = do when (not $ noCheckUnknown cfg) $ checkDefAsserts env vbs xbs
                                    forM vbs mkVarSpec
-
+  
 checkDefAsserts env vbs xbs   = applyNonNull (return ()) grumble  undefSigs
   where
     undefSigs                 = [x | (x, _) <- assertSigs, not (x `S.member` definedSigs)]
@@ -276,8 +276,6 @@ checkDefAsserts env vbs xbs   = applyNonNull (return ()) grumble  undefSigs
 
 
 locatedSymbolText z = text (symbolString $ val z) <+> text "defined at:" <+> pprint (loc z)    
-
-
 
 mkVarSpec                 :: (Var, LocSymbol, BareType) -> BareM (Var, Located SpecType)
 mkVarSpec (v, Loc l _, b) = ((v, ) . (Loc l)) <$> mkSpecType msg b
@@ -323,15 +321,18 @@ makeSymbols vs xs' xts yts = xvs
     xvs  = sortNub [(x, v) | (v, _, x) <- joinIds vs (zip xs xs)]
 
 joinIds        ::  (Symbolic a) => [Var] -> [(a, t)] -> [(Var, a, t)]
-joinIds vs xts = catMaybes [(, x, t) <$> tx x | (x, t) <- xts]   
-  where 
-    vm         = group [(dropModuleNames $ showpp v, v) | v <- vs]
-    tx x       = listToMaybe $ filter (symCompat x) $ M.lookupDefault [] (ss x) vm
-    ss         = dropModuleNames . symbolString . symbol 
+joinIds vs' xts = catMaybes [(, x, t) <$> tx x | (x, t) <- xts]   
+  where
+    vs          = tracePP "joinIds" vs'
+    vm          = group [(dropModuleNames $ showpp v, v) | v <- vs]
+    tx x        = listToMaybe $ filter (symCompat x) $ M.lookupDefault [] (ss x) vm
+    ss          = dropModuleNames . symbolString . symbol 
 
 symCompat :: (Symbolic a) => a -> Var -> Bool
-symCompat x v   = (symbolString $ symbol x) `comp` (showpp v)
-  where 
+symCompat x v   = traceShow msg $ (symbolString xsym) `comp` (showpp v)
+  where
+    msg         = printf "symCompat: x = %s v = %s" (showpp xsym) (showpp v)
+    xsym        = symbol x
     comp sx sv  = sx == sv || (takeModuleNames sx `L.isPrefixOf` takeModuleNames sv)
 
 
