@@ -177,12 +177,13 @@ moduleSpec cfg vars target mg paths
   = do liftIO      $ putStrLn ("paths = " ++ show paths) 
        tgtSpec    <- liftIO $ parseSpec (name, target) 
        impSpec    <- getSpecs paths impNames [Spec, Hs, LHs] 
-       let spec    = Ms.expandRTAliases $ tgtSpec `mappend` impSpec 
-       let imps    = sortNub $ impNames ++ [symbolString x | x <- Ms.imports spec]
-       setContext [IIModule $ moduleName $ mgi_module mg]
-       env        <- getSession
-       ghcSpec    <- liftIO $ makeGhcSpec cfg name vars env spec
-       return      (ghcSpec, imps, Ms.includes tgtSpec)
+       let spec    = [ (n,  Ms.expandRTAliases s) | (n, s) <- tgtSpec : impSpec  ]
+       let imps    = sortNub $ impNames ++ [symbolString x | (_, s) <- spec, x <- Ms.imports s]
+       ghcSpec    <- mconcat <$> forM spec (makeGhcSpecByModule cfg name vars) 
+       -- setContext [IIModule $ moduleName $ mgi_module mg]
+       -- env        <- getSession
+       -- ghcSpec    <- liftIO $ makeGhcSpec cfg name vars env spec
+       return      (ghcSpec, imps, Ms.includes $ snd tgtSpec)
     where impNames = allDepNames  mg
           name     = mgi_namestring mg
 
@@ -197,24 +198,49 @@ targetName     = dropExtension  . takeFileName
 starName       = ("*" ++)
 
 
+makeGhcSpecByModule cfg targetName vars (name, spec) 
+  = do setContext [IIModule name] 
+       env   <- getSession
+       spec' <- liftIO $ makeGhcSpec cfg targetName vars env spec
+       return $ spec'
+
 getSpecs paths names exts
   = do fs    <- sortNub <$> moduleImports exts paths names 
        liftIO $ putStrLn ("getSpecs: " ++ show fs)
-       transParseSpecs exts paths S.empty mempty fs
+       transParseSpecs exts paths S.empty [] fs
 
+-- transParseSpecs :: (MonadIO m) => [Ext] -> [FilePath] -> S.HashSet (String, String) -> Ms.Spec BareType Symbol-> [([Char], [Char])]-> m (Ms.Spec BareType Symbol)
+-- transParseSpecs _ _ _ spec []       
+--   = return spec
+-- transParseSpecs exts paths seenFiles spec newFiles 
+--   = do newSpec   <- liftIO $ liftM mconcat $ mapM parseSpec newFiles 
+--        impFiles  <- moduleImports exts paths [symbolString x | x <- Ms.imports newSpec]
+--        let seenFiles' = seenFiles  `S.union` (S.fromList newFiles)
+--        let spec'      = spec `mappend` newSpec
+--        let newFiles'  = [f | f <- impFiles, not (f `S.member` seenFiles')]
+--        transParseSpecs exts paths seenFiles' spec' newFiles'
+-- 
+-- parseSpec (name, file) 
+--   = Ex.catch (parseSpec' name file) $ \(e :: Ex.IOException) ->
+--       ioError $ userError $ "Hit exception: " ++ (show e) ++ " while parsing Spec file: " ++ file ++ " for module " ++ name 
+
+
+-- transParseSpecs :: (MonadIO m) => [Ext] -> [FilePath] -> S.HashSet (String, String) -> Ms.Spec BareType Symbol-> [([Char], [Char])]-> m (Ms.Spec BareType Symbol)
 transParseSpecs _ _ _ spec []       
   = return spec
 transParseSpecs exts paths seenFiles spec newFiles 
-  = do newSpec   <- liftIO $ liftM mconcat $ mapM parseSpec newFiles 
+  = do newSpec   <- liftIO $ mapM parseSpec newFiles 
        impFiles  <- moduleImports exts paths [symbolString x | x <- Ms.imports newSpec]
        let seenFiles' = seenFiles  `S.union` (S.fromList newFiles)
-       let spec'      = spec `mappend` newSpec
+       let spec'      = spec ++ newSpec
        let newFiles'  = [f | f <- impFiles, not (f `S.member` seenFiles')]
        transParseSpecs exts paths seenFiles' spec' newFiles'
- 
+
 parseSpec (name, file) 
-  = Ex.catch (parseSpec' name file) $ \(e :: Ex.IOException) ->
+  = Ex.catch (name, parseSpec' name file) $ \(e :: Ex.IOException) ->
       ioError $ userError $ "Hit exception: " ++ (show e) ++ " while parsing Spec file: " ++ file ++ " for module " ++ name 
+
+
 
 
 parseSpec' name file 
@@ -229,13 +255,6 @@ specParser name file str
   | isExtFile LHs file   = hsSpecificationP name file str
   | otherwise            = errorstar $ "specParser: Cannot Parse File " ++ file
 
---specParser Spec _  = rr'
---specParser Hs name = hsSpecificationP name
-
---moduleImports ext paths  = liftIO . liftM catMaybes . mapM (mnamePath paths ext) 
---mnamePath paths ext name = fmap (name,) <$> getFileInDirs file paths
---                           where file = name `extModuleName` ext
-
 moduleImports exts paths 
   = liftIO . liftM concat . mapM (moduleFiles paths exts) 
 
@@ -243,18 +262,6 @@ moduleFiles paths exts name
   = do files <- mapM (`getFileInDirs` paths) (extModuleName name <$> exts)
        return [(name, file) | Just file <- files]
 
-
---moduleImports ext paths names 
---  = liftIO $ liftM catMaybes $ forM extNames (namePath paths)
---    where extNames = (`extModuleName` ext) <$> names 
--- namePath paths fileName = getFileInDirs fileName paths
-
---namePath_debug paths name 
---  = do res <- getFileInDirs name paths
---       case res of
---         Just p  -> putStrLn $ "namePath: name = " ++ name ++ " expanded to: " ++ (show p) 
---         Nothing -> putStrLn $ "namePath: name = " ++ name ++ " not found in: " ++ (show paths)
---       return res
 
 specIncludes :: GhcMonad m => Ext -> [FilePath] -> [FilePath] -> m [FilePath]
 specIncludes ext paths reqs 

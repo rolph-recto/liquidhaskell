@@ -9,7 +9,6 @@
 module Language.Haskell.Liquid.Bare (
     GhcSpec (..)
   , makeGhcSpec
-  -- , varSpecType
   ) where
 
 import GHC hiding               (lookupName, Located)	
@@ -380,7 +379,7 @@ stringLookup env k
   | k `M.member` wiredIn
   = return $ M.lookup k wiredIn
   | last k == '#'
-  = return Nothing -- errorstar $ "Unknown Primitive Thing: " ++ k
+  = return Nothing 
   | otherwise
   = stringLookupEnv env k
 
