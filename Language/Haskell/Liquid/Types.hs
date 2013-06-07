@@ -5,9 +5,6 @@
 {-# LANGUAGE FlexibleContexts       #-} 
 {-# LANGUAGE OverlappingInstances   #-}
 
--- , MultiParamTypeClasses, FlexibleContexts, ScopedTypeVariables, NoMonomorphismRestriction, , UndecidableInstances, , TupleSections, RankNTypes, GADTs -}
-
-
 -- | This module (should) contain all the global type definitions and basic
 -- instances. Need to gradually pull things into here, especially from @RefType@
 
@@ -76,6 +73,7 @@ module Language.Haskell.Liquid.Types (
   )
   where
 
+import Unique                  (getKey, getUnique)                  
 import TyCon
 import DataCon
 import TypeRep          hiding (maybeParen, pprArrowChain)  
@@ -92,6 +90,7 @@ import Data.Generics                (Data)
 import Data.Monoid                  hiding ((<>))
 import qualified Data.Foldable as F
 import Data.Hashable
+import qualified Data.HashMap.Strict  as M
 import Data.Maybe                   (fromMaybe)
 import Data.Traversable             hiding (mapM)
 import Data.List                    (nub)
@@ -99,6 +98,7 @@ import Text.Parsec.Pos              (SourcePos, newPos)
 import Text.PrettyPrint.HughesPJ    
 import Language.Fixpoint.Types hiding (Predicate) 
 import Language.Fixpoint.Misc
+
 
 import CoreSyn (CoreBind)
 import Var
@@ -248,7 +248,22 @@ data GhcSpec = SP {
   , tgtVars  :: !TargetVars                      -- ^ Top-level Binders To Verify (empty means ALL binders)
   
   }
-  
+ 
+instance Monoid GhcSpec where
+  mempty        = SP mempty mempty mempty mempty mempty mempty mempty (M.empty) mempty mempty
+  mappend s1 s2 = SP (mappend (tySigs     s1)  (tySigs     s2))   
+                     (mappend (ctor       s1)  (ctor       s2)) 
+                     (mappend (meas       s1)  (meas       s2)) 
+                     (mappend (invariants s1)  (invariants s2)) 
+                     (mappend (dconsP     s1)  (dconsP     s2)) 
+                     (mappend (tconsP     s1)  (tconsP     s2)) 
+                     (mappend (freeSyms   s1)  (freeSyms   s2)) 
+                     (mappTCE (tcEmbeds   s1)  (tcEmbeds   s2)) 
+                     (mappend (qualifiers s1)  (qualifiers s2)) 
+                     (mappend (tgtVars    s1)  (tgtVars    s2)) 
+
+mappTCE x y = M.fromList (M.toList x ++ M.toList y)
+
 data TyConP = TyConP { freeTyVarsTy :: ![RTyVar]
                      , freePredTy   :: ![(PVar RSort)]
                      , covPs        :: ![Int] -- indexes of covariant predicate arguments
@@ -265,6 +280,11 @@ data DataConP = DataConP { freeTyVars :: ![RTyVar]
 -- | Which Top-Level Binders Should be Verified
 data TargetVars = AllVars | Only ![Var]
 
+instance Monoid TargetVars where
+  mempty                      = Only []
+  mappend AllVars _           = AllVars 
+  mappend _ AllVars           = AllVars 
+  mappend (Only xs) (Only ys) = Only (xs ++ ys)
 
 --------------------------------------------------------------------
 -- | Predicate Variables -------------------------------------------
@@ -292,6 +312,15 @@ instance (NFData a) => NFData (PVar a) where
 
 instance Hashable (PVar a) where
   hashWithSalt i (PV n _ xys) = hashWithSalt i  n -- : (thd3 <$> xys)
+
+instance Hashable Var where
+  hashWithSalt = uniqueHash 
+
+instance Hashable TyCon where
+  hashWithSalt = uniqueHash 
+
+uniqueHash i = hashWithSalt i . getKey . getUnique
+
 
 --------------------------------------------------------------------
 ------------------ Predicates --------------------------------------

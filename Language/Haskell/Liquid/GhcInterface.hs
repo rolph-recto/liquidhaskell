@@ -197,12 +197,16 @@ targetName     = dropExtension  . takeFileName
 -- starName fn    = combine dir ('*':f) where (dir, f) = splitFileName fn
 starName       = ("*" ++)
 
-
 makeGhcSpecByModule cfg targetName vars (name, spec) 
-  = do setContext [IIModule name] 
+  = do setContextWithName name 
        env   <- getSession
        spec' <- liftIO $ makeGhcSpec cfg targetName vars env spec
        return $ spec'
+
+
+setContextWithName n = setContext [nameIImport n]
+  where 
+    nameIImport name = GHC.IIDecl $ (GHC.simpleImportDecl . GHC.mkModuleName $ name) {GHC.ideclQualified = True} 
 
 getSpecs paths names exts
   = do fs    <- sortNub <$> moduleImports exts paths names 
@@ -230,18 +234,15 @@ transParseSpecs _ _ _ spec []
   = return spec
 transParseSpecs exts paths seenFiles spec newFiles 
   = do newSpec   <- liftIO $ mapM parseSpec newFiles 
-       impFiles  <- moduleImports exts paths [symbolString x | x <- Ms.imports newSpec]
+       impFiles  <- moduleImports exts paths [symbolString x | (n,s) <- newSpec, x <- Ms.imports s]
        let seenFiles' = seenFiles  `S.union` (S.fromList newFiles)
        let spec'      = spec ++ newSpec
        let newFiles'  = [f | f <- impFiles, not (f `S.member` seenFiles')]
        transParseSpecs exts paths seenFiles' spec' newFiles'
 
 parseSpec (name, file) 
-  = Ex.catch (name, parseSpec' name file) $ \(e :: Ex.IOException) ->
+  = Ex.catch ((name,) <$> parseSpec' name file) $ \(e :: Ex.IOException) ->
       ioError $ userError $ "Hit exception: " ++ (show e) ++ " while parsing Spec file: " ++ file ++ " for module " ++ name 
-
-
-
 
 parseSpec' name file 
   = do putStrLn $ "parseSpec: " ++ file ++ " for module " ++ name  

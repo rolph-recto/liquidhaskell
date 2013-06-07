@@ -7,6 +7,6 @@ data Goo = G Int
   @-}
  
 {-@ inc :: x:Goo -> {v: Goo | (myg v) > (myg x)} @-}
-inc (M.G x) = M.G (x + 1)
+inc (G x) = G (x + 1)
 
 
