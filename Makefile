@@ -17,7 +17,7 @@ FOPTS=""
 OPTS="-W -O2 -XStandaloneDeriving"
 PROFOPTS="-O2 -rtsopts -prof -auto-all -caf-all -XStandaloneDeriving -XDeriveDataTypeable"
 
-CABAL=cabal
+CABAL=cabal -j
 CABALI=$(CABAL) install --ghc-options=$(OPTS)
 CABALP=$(CABAL) install --ghc-options=$(OPTS) -p
 
@@ -30,7 +30,7 @@ fast:
 	$(CABAL) install
 
 prof:
-	$(CABAL) install --enable-executable-profiling --enable-library-profiling --ghc-options=$(PROFOPTS) primitive 
+	$(CABAL) install --enable-executable-profiling --enable-library-profiling --ghc-options=$(PROFOPTS) 
 
 rebuild:
 	cd external/fixpoint/ && make clean && make && cd ../../
