@@ -27,7 +27,7 @@ all:
 	$(CABAL) install --ghc-options=$(OPTS) 
 
 fast: 
-	$(CABAL) install
+	$(CABAL) build 
 
 prof:
 	$(CABAL) install --enable-executable-profiling --enable-library-profiling --ghc-options=$(PROFOPTS) 
