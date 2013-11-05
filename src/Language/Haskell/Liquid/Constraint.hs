@@ -1064,17 +1064,17 @@ consE γ  e@(Lam x e1)
     where FunTy τx _ = exprType e 
 
 -- EXISTS-BASED CONSTRAINTS HEREHEREHEREHERE
--- consE γ e@(Let b@(NonRec x _) e')
---   = do γ'    <- consCBLet γ b
---        consElimE γ' [F.symbol x] e'
--- 
--- consE γ (Case e x _ [(ac, ys, ce)]) 
---   = do γ'  <- consCBLet γ (NonRec x e)
---        γ'' <- caseEnv γ' x [] ac ys
---        consElimE γ'' (F.symbol <$> (x:ys)) ce 
+consE γ e@(Let b@(NonRec x _) e')
+  = do γ'    <- consCBLet γ b
+       consElimE γ' [F.symbol x] e'
 
-consE γ e@(Let _ _) 
-  = cconsFreshE LetE γ e
+consE γ (Case e x _ [(ac, ys, ce)]) 
+  = do γ'  <- consCBLet γ (NonRec x e)
+       γ'' <- caseEnv γ' x [] ac ys
+       consElimE γ'' (F.symbol <$> (x:ys)) ce 
+
+-- consE γ e@(Let _ _) 
+--   = cconsFreshE LetE γ e
 
 consE γ e@(Case _ _ _ _) 
   = cconsFreshE CaseE γ e
