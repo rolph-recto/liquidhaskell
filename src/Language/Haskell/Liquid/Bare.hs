@@ -44,7 +44,7 @@ import Data.Bifunctor
 import Data.Function            (on)
 
 import Language.Fixpoint.Misc
-import Language.Fixpoint.Names                  (propConName, takeModuleNames, dropModuleNames)
+import Language.Fixpoint.Names                  (propConName, takeModuleNames, dropModuleNames, strConName)
 import Language.Fixpoint.Types                  hiding (Def, Predicate)
 import Language.Fixpoint.Sort                   (checkSortedReftFull, checkSorted)
 import Language.Haskell.Liquid.GhcMisc          hiding (L)
@@ -832,7 +832,8 @@ lookupGhcTyCon s     = (lookupGhcThing "type constructor or class" ftc s)
     ftc _            = Nothing
 
 tryPropTyCon s e   
-  | pp s == propConName = return propTyCon 
+  | pp s == propConName = return propTyCon
+  | pp s == strConName  = return strTyCon
   | otherwise           = throwError e
 
 lookupGhcClass       = lookupGhcThing "class" ftc
@@ -871,6 +872,7 @@ fixpointPrims = [ "Pred"
                 , "Set_emp"
                 , "Set_mem"
                 , "Set_sub"
+                , "Str"
                 , "VV"
                 , "FAppTy" 
                 ]
@@ -1126,6 +1128,7 @@ mkMeasureSort (Ms.MSpec c mm cm im)
 -----------------------------------------------------------------------
 
 propTyCon   = stringTyCon 'w' 24 propConName
+strTyCon    = stringTyCon 'y' 25 strConName
 -- propMeasure = (stringSymbolRaw propConName, FFunc  
 
 -----------------------------------------------------------------------

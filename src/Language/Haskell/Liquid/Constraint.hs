@@ -1650,7 +1650,7 @@ cgInfoFInfoKvars cgi kvars = cgInfoFInfo cgi{fixCs = fixCs' ++ trueCs}
         trueCs = (`F.trueSubCKvar` (Ci noSrcSpan Nothing)) <$> kvars
 
 cgInfoFInfo cgi
-  = F.FI { F.cm    = M.fromList $ F.addIds $ fixCs cgi
+  = let f = F.FI { F.cm    = M.fromList $ F.addIds $ fixCs cgi
          , F.ws    = fixWfs cgi  
          , F.bs    = binds cgi 
          , F.gs    = globals cgi 
@@ -1658,6 +1658,7 @@ cgInfoFInfo cgi
          , F.kuts  = kuts cgi 
          , F.quals = specQuals cgi
          }
+    in f { F.lits = F.lits f ++ F.symConstLits f }
 
 updateCs kvars cs
   | null lhskvars || F.isFalse rhs

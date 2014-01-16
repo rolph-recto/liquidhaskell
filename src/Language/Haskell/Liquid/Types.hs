@@ -882,6 +882,7 @@ instance PPrint Expr where
   pprint (ECon c)        = pprint c 
   pprint (EVar s)        = pprint s
   pprint (ELit s _)      = pprint s
+  pprint (ESym (SL s))   = pprint s
   pprint (EBin o e1 e2)  = parens $ pprint e1 <+> pprint o <+> pprint e2
   pprint (EIte p e1 e2)  = parens $ text "if" <+> pprint p <+> text "then" <+> pprint e1 <+> text "else" <+> pprint e2 
   pprint (ECst e so)     = parens $ pprint e <+> text " : " <+> pprint so 
