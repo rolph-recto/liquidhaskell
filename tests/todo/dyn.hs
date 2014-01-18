@@ -1,4 +1,5 @@
 {-@ LIQUID "--no-termination" @-}
+{-@ LIQUID "-m4" @-}
 module Dyn (ok, bad, bad2, bad3) where
 
 import Data.Dynamic
@@ -17,22 +18,34 @@ import Language.Haskell.Liquid.Prelude (liquidError, proxy)
 {-@ b0 :: DBox < {\k -> ((k = 0) || (k = 1))}
                , {\k v -> ((FieldType k 0 v "String") && (FieldType k 1 v "Int"))}> ()
   @-}
-b0    = putDyn 0 (toD ("cat" :: String))
-      $ putDyn 1 (toD (12    :: Int))
-      $ emp
+b0    = put 0 ("cat" :: String) b1
+      -- $ put 1 (12    :: Int)
+      -- $ emp
 
-ok    = 10 `plus` x where x = (get 1 b0)
+b1 = put 1 (12 :: Int) emp
 
-bad   = 10 `plus` x where x = (get 0 foo)
+b2 = put 0 ("cat" :: String) b1
 
-bad2  = 10 `plus` ofD (getDyn b0 2)
+{-@ ok :: {v:Int | (typeRep v) = "Int"} @-}
+ok :: Int
+ok    = get 1 b2
 
-bad3  = putDyn 1 (toD (10 :: Int)) b0
+{-@ bad :: {v:Int | (typeRep v) = "Int"} @-}
+bad :: Int
+bad   = get 0 foo -- ofD (getDyn foo 0)
+
+{-@ bad' :: {v:String | (typeRep v) = "String"} @-}
+bad' :: String
+bad'   = get 0 foo -- ofD (getDyn foo 0)
+
+bad2  = undefined --10 `plus` ofD (getDyn b0 2)
+
+bad3  = undefined --putDyn 1 (toD (10 :: Int)) b0
 
 
 
-{- foo :: DBox <{\f -> f = 0},{\f v -> true }> () @-}
-foo = putDyn 0 (toD ("cat" :: String)) emp
+{-@ foo :: DBox <{\f -> f = 0},{\f v -> (FieldType f 0 v "String") }> () @-}
+foo = put 0 ("cat" :: String) emp
 
 -------------------------------------------------
 plus :: Int -> Int -> Int
@@ -43,9 +56,8 @@ plus = (+)
 
 -------------------------------------------------
 
-{-@ predicate FieldType F K V T =
-      ((F = K) => ((tag V) = T))
-  @-}
+{-@ predicate FieldType F K V T = ((F = K) => ((tag V) = T)) @-}
+
 {-@ measure tag :: Dynamic -> Str @-}
 {-@ class measure typeRep :: forall a. a -> Str @-}
 {-@ invariant {v:String | (typeRep v) = "String"} @-}
@@ -100,7 +112,8 @@ data DBox where
   @-}
 {- type DBoxWithKey a F D = {v:DBox a | (defKeys v) = (Set_cup (Set_sng F) (defKeys D))} @-}
 
-{-@ emp :: forall <p :: Field -> Dynamic -> Prop>. DBox <{\f -> false}, p> () @-}
+{- emp :: forall <r :: Field -> Dynamic -> Prop>. DBox <{\f -> false}, r> () @-}
+{-@ emp :: DBox <{\f -> false}, {\f v -> false}> () @-}
 emp :: DBox ()
 emp = DB $ \x -> liquidError $ "NOT FOUND " ++ show x -- Emp -- DB []
 
@@ -113,15 +126,21 @@ emp = DB $ \x -> liquidError $ "NOT FOUND " ++ show x -- Emp -- DB []
         => f:Field -> x:a -> DBox <d, r> ()
         -> {v:DBox <{\k -> ((k = f) || (d k))}, r> () | (tag (getField f v)) = (typeRep x) }
   @-}
-{- put :: forall <d :: Field -> Prop, r :: Field -> Dynamic -> Prop>.
+{-@ put :: forall <d :: Field -> Prop, r :: Field -> Dynamic -> Prop>.
            (Typeable a)
         => f:Field<d>
         -> x:a
-        -> DBox <{v:Field<d> | v != f}, r> ()
-        -> exists[z:{Dynamic<(r f)> | (tag z) = (typeRep x)}].
-           {v:DBox <d, r> () | true }
+        -> DBox <{v:Field<d> | v != f}, \k -> {v:Dynamic<r k> | k != f}> ()
+        -> DBox <d, \k -> {v:Dynamic<r k> | (FieldType f k v (typeRep x))}> ()
   @-}
+        -- -> DBox <{v:Field<d> | v != f}, r> ()
 -- (tag (getField f v)) = (typeRep x)
+{- putDyn :: forall <d :: Field -> Prop, r :: Field -> Dynamic -> Prop>.
+              f:Field<d>
+           -> x:Dynamic<r f>
+           -> DBox <{v:Field<d> | v != f}, r> ()
+           -> DBox <d, r> ()
+  @-}
 
 put :: (Typeable a) => Field -> a -> DBox () -> DBox ()
 -- put k v (DB b) = DB ((k, toD v) : b)
@@ -167,16 +186,16 @@ getDyn (DB db) k = db k
 
 --FIXME: the following is UNSAFE because d:DBox shadows d:Pred, shouldn't happen...
 {- getDyn :: forall <d :: Int -> Prop, r :: Field -> Dynamic -> Prop>.
-            -> DBox <d, r> ()
-               Int<d>
+            -> d:DBox <d, r> ()
+            -> Int<d>
             -> Dynamic<r f>
   @-}
 
 {-@ putDyn :: forall <d :: Field -> Prop, r :: Field -> Dynamic -> Prop>.
               f:Field<d>
            -> x:Dynamic<r f>
-           -> DBox <{v:Field<d> | v != f}, r> ()
-           -> DBox <d, r> ()
+           -> DBox <{v:Field<d> | v != f}, \k -> {v:Dynamic<r k> | k != f}> ()
+           -> DBox <d, \k -> {v:Dynamic<r k> | (FieldType f k v (tag x))}> ()
   @-}
            -- -> {v:DBox <d, r> () | (tag (getField f v)) = (tag x) }
 putDyn :: Field -> Dynamic -> DBox () -> DBox ()
@@ -187,18 +206,18 @@ toD :: (Typeable a) => a -> Dynamic
 toD = toDyn 
 
 {- ofD :: (Typeable a) => x:a -> d:{Dynamic | (tag d) = (typeRep x)} -> {v:a | (tag d) = (typeRep v)} @-}
-{- ofD :: (Typeable a)
+{-@ ofD :: (Typeable a)
         => d:Dynamic
         -> exists[m:Maybe {v:a | (typeRep v) = (tag d)}]. {v:a | v = (fromJust m)}
   @-}
 ofD :: (Typeable a) => Dynamic -> a
 -- ofD = fromMaybe (error "DYNAMIC ERROR") . fromDynamic
-ofD = fromJust . fromDynamic
+ofD = undefined -- fromJust . fromDynamic
 
 
 {-@ ofD' :: (Typeable a) => x:a -> d:{Dynamic | (tag d) = (typeRep x)} -> {v:a | (tag d) = (typeRep v)} @-}
 ofD' :: (Typeable a) => a -> Dynamic -> a
-ofD' _ = fromJust . fromDynamic
+ofD' _ = undefined -- fromJust . fromDynamic
 
 {-@ fromDynamic :: (Typeable a) => d:Dynamic -> {v:Maybe {x:a | (((tag d) = (typeRep x)) => (isJust v))} | true} @-}
 {-@ fromJust :: x:{Maybe a | (isJust x)} -> {v:a | v = (fromJust x)} @-}
