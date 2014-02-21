@@ -116,7 +116,7 @@ spanByte c ps@(PS x s l) = inlinePerformIO $ withForeignPtr x $ \p ->
     go l (p `plusPtr` s) 0
   where
     {-@ go :: d:_ -> p:_ -> i:_ -> _ @-}
-    STRICT3(go)
+--    STRICT3(go)
     {- LIQUID WITNESS -}
     go (d::Int) p i | i >= l    = return (ps, empty)
                     | otherwise = do c' <- peekByteOff p i

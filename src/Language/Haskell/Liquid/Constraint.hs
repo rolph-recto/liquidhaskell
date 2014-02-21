@@ -7,6 +7,7 @@
 {-# LANGUAGE BangPatterns              #-}
 {-# LANGUAGE PatternGuards             #-}
 {-# LANGUAGE MultiParamTypeClasses     #-}
+{-# LANGUAGE ViewPatterns              #-}
 
 -- | This module defines the representation of Subtyping and WF Constraints, and 
 -- the code for syntax-directed constraint generation. 
@@ -119,9 +120,10 @@ initEnv info penv
     refreshArgs' = mapM (mapSndM refreshArgs)
     refreshKs    = mapM (mapSndM refreshK)
     refreshK t   = do
-        t' <- mapReftM f t
+--        t' <- mapReftM f t
         let b = foldReft ((||) . isHole) False t
-        return (if b then Just t' else Nothing, t')
+        t'' <- refresh t
+        return (if b then (Just t'', t'') else (Nothing,t))   --(if b then Just t'' else Nothing, t'')
       where
         f r | isHole r  = refresh r
             | otherwise = return r
@@ -1034,18 +1036,34 @@ consCB _ γ (NonRec x e)
        to' <- consBind False γ (x, e, to)
        extender γ (x, to')
 
-consBind isRec γ (x, e, Just spect) 
+consBind isRec γ (x, e, Just spect)
+  | noKs spect
   = do let γ' = (γ `setLoc` getSrcSpan x) `setBind` x
+           πs = snd3 $ bkUniv spect
        γπ    <- foldM addPToEnv γ' πs
        cconsE γπ e spect
        addIdA x (defAnn isRec spect)
        return $ Just spect -- Nothing
-  where πs   = snd3 $ bkUniv spect
+--  | trace ("consBind: " ++ show spect) False = undefined
+  | otherwise
+  = do let γ' = (γ `setLoc` getSrcSpan x) `setBind` x
+           πs = snd3 $ bkUniv spect
+       γπ    <- foldM addPToEnv γ' πs
+       t  <- unifyVar γπ x <$> consE γπ e
+       addC (SubC γπ t spect) ("consBind" ++ showPpr e)
+       addIdA x (defAnn isRec t)
+       return $ Just t
 
 consBind isRec γ (x, e, Nothing)
   = do t <- unifyVar γ x <$> consE (γ `setBind` x) e
        addIdA x (defAnn isRec t)
        return $ Just t
+
+noKs = and . foldReft (\r bs -> not (hasK r) : bs) []
+  where
+    hasK (F.toReft -> F.Reft (_, rs)) = any isK rs
+    isK (F.RKvar _ _) = True
+    isK _             = False
 
 defAnn True  = RDf
 defAnn False = Def
