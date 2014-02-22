@@ -114,7 +114,6 @@ initEnv info penv
        lts      <- lits <$> get
        let tcb   = mapSnd (rTypeSort tce ) <$> concat bs
        let γ0    = measEnv (spec info) penv (head bs) (cbs info) (tcb ++ lts)
-       mapM_ (addW . WfC γ0) (catMaybes ks)
        foldM (++=) γ0 [("initEnv", x, y) | (x, y) <- concat $ tail bs]
   where
     refreshArgs' = mapM (mapSndM refreshArgs)
@@ -1044,13 +1043,14 @@ consBind isRec γ (x, e, Just spect)
        cconsE γπ e spect
        addIdA x (defAnn isRec spect)
        return $ Just spect -- Nothing
---  | trace ("consBind: " ++ show spect) False = undefined
   | otherwise
   = do let γ' = (γ `setLoc` getSrcSpan x) `setBind` x
-           πs = snd3 $ bkUniv spect
+           spect' = fmap killSubst spect
+           πs = snd3 $ bkUniv spect'
        γπ    <- foldM addPToEnv γ' πs
+       addW $ WfC γπ spect'
        t  <- unifyVar γπ x <$> consE γπ e
-       addC (SubC γπ t spect) ("consBind" ++ showPpr e)
+       addC (SubC γπ t spect') ("consBind" ++ showPpr e)
        addIdA x (defAnn isRec t)
        return $ Just t
 
@@ -1064,6 +1064,13 @@ noKs = and . foldReft (\r bs -> not (hasK r) : bs) []
     hasK (F.toReft -> F.Reft (_, rs)) = any isK rs
     isK (F.RKvar _ _) = True
     isK _             = False
+
+killSubst :: RReft -> RReft
+killSubst = fmap tx
+  where
+    tx (F.Reft (s, rs)) = F.Reft (s, map f rs)
+    f (F.RKvar k _) = F.RKvar k mempty
+    f (F.RConc p)   = F.RConc p
 
 defAnn True  = RDf
 defAnn False = Def
