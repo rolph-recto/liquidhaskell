@@ -695,7 +695,7 @@ plugHoles f t st = mkArrow αs ps cs' $ go rt' st''
     cs'          = [(dummySymbol, RCls c t) | (c,t) <- cs]
 
     go t                (RHole r)          = addHoles t { rt_reft = f r }
-      where addHoles = fmap (const $ uReft (S "v", [hole]))
+      where addHoles = fmap (const $ f $ uReft (S "v", [hole]))
     go (RVar _ _)       v@(RVar _ _)       = v
     go (RFun _ i o _)   (RFun x i' o' r)   = RFun x (go i i') (go o o') r
     go (RAllT _ t)      (RAllT a t')       = RAllT a $ go t t'
@@ -1458,7 +1458,7 @@ freshSymbol
        return $ S $ "ex#" ++ show n
 
 maybeTrue x target exports r
-  | not (isHole r) || isInternalName name || inTarget && notExported
+  | not (hasHole r) || isInternalName name || inTarget && notExported
   = r
   | otherwise
   = uTop $ Reft (S "VV", [])

@@ -104,7 +104,7 @@ initEnv info penv
   = do let tce   = tcEmbeds $ spec info
        defaults <- forM (impVars info) $ \x -> liftM (x,) (trueTy $ varType x)
        tyi      <- tyConInfo <$> get 
-       (ks,f0)  <- extract <$> refreshKs (grty info)-- asserted refinements     (for defined vars)
+       let f0    = grty info                        -- asserted refinements     (for defined vars)
        f0''     <- grtyTop info >>= refreshArgs'    -- default TOP reftype      (for exported vars without spec)
        let f0'   = if (notruetypes $ config $ spec info) then [] else f0''
        f1       <- refreshArgs' $ defaults          -- default TOP reftype      (for all vars)
@@ -117,20 +117,7 @@ initEnv info penv
        foldM (++=) γ0 [("initEnv", x, y) | (x, y) <- concat $ tail bs]
   where
     refreshArgs' = mapM (mapSndM refreshArgs)
-    refreshKs    = mapM (mapSndM refreshK)
-    refreshK t   = do
---        t' <- mapReftM f t
-        let b = foldReft ((||) . isHole) False t
-        t'' <- refresh t
-        return (if b then (Just t'', t'') else (Nothing,t))   --(if b then Just t'' else Nothing, t'')
-      where
-        f r | isHole r  = refresh r
-            | otherwise = return r
-    extract = unzip . map (\(v,(k,t)) -> (k,(v,t)))
   -- where tce = tcEmbeds $ spec info
-
-instance Show Var where
-  show = showPpr
 
 ctor' = map (mapSnd val) . ctors
 
@@ -1036,7 +1023,7 @@ consCB _ γ (NonRec x e)
        extender γ (x, to')
 
 consBind isRec γ (x, e, Just spect)
-  | noKs spect
+  | noHoles spect
   = do let γ' = (γ `setLoc` getSrcSpan x) `setBind` x
            πs = snd3 $ bkUniv spect
        γπ    <- foldM addPToEnv γ' πs
@@ -1044,8 +1031,9 @@ consBind isRec γ (x, e, Just spect)
        addIdA x (defAnn isRec spect)
        return $ Just spect -- Nothing
   | otherwise
-  = do let γ' = (γ `setLoc` getSrcSpan x) `setBind` x
-           spect' = fmap killSubst spect
+  = do spect' <- fmap killSubst <$> refreshHoles spect
+       let γ' = (γ `setLoc` getSrcSpan x) `setBind` x
+           -- spect' = fmap killSubst spect
            πs = snd3 $ bkUniv spect'
        γπ    <- foldM addPToEnv γ' πs
        addW $ WfC γπ spect'
@@ -1059,11 +1047,13 @@ consBind isRec γ (x, e, Nothing)
        addIdA x (defAnn isRec t)
        return $ Just t
 
-noKs = and . foldReft (\r bs -> not (hasK r) : bs) []
+noHoles = and . foldReft (\r bs -> not (hasHole r) : bs) []
+
+refreshHoles :: SpecType -> CG SpecType
+refreshHoles = mapReftM f
   where
-    hasK (F.toReft -> F.Reft (_, rs)) = any isK rs
-    isK (F.RKvar _ _) = True
-    isK _             = False
+    f r | hasHole r = refresh r
+        | otherwise = return r
 
 killSubst :: RReft -> RReft
 killSubst = fmap tx

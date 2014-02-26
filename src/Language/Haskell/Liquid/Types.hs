@@ -51,7 +51,7 @@ module Language.Haskell.Liquid.Types (
   -- * Default unknown name
   , dummyName, isDummy
   -- * Refinement Hole
-  , hole, isHole
+  , hole, isHole, hasHole
 
   -- * Traversing `RType` 
   , efoldReft, foldReft
@@ -1212,5 +1212,8 @@ instance NFData KVProf where
 
 hole = RKvar (S "HOLE") mempty
 
-isHole (toReft -> (Reft (_, [RKvar (S "HOLE") _]))) = True
-isHole _                                            = False
+isHole (RKvar (S "HOLE") _) = True
+isHole _                    = False
+
+hasHole (toReft -> (Reft (_, rs))) = any isHole rs
+
