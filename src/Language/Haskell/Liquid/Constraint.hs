@@ -1035,23 +1035,15 @@ consCB _ γ (NonRec x e)
        extender γ (x, to')
 
 consBind isRec γ (x, e, Just spect)
-  | not $ F.symbol x `elemHEnv` holes γ
   = do let γ' = (γ `setLoc` getSrcSpan x) `setBind` x
            πs = snd3 $ bkUniv spect
        γπ    <- foldM addPToEnv γ' πs
        cconsE γπ e spect
+       when (F.symbol x `elemHEnv` holes γ) $
+         -- have to add the wf constraint here for HOLEs so we have the proper env
+         addW $ WfC γπ $ fmap killSubst spect
        addIdA x (defAnn isRec spect)
        return $ Just spect -- Nothing
-  | otherwise
-  = do let spect' = killSubst <$> spect
-           γ' = (γ `setLoc` getSrcSpan x) `setBind` x
-           πs = snd3 $ bkUniv spect'
-       γπ    <- foldM addPToEnv γ' πs
-       addW $ WfC γπ spect'
-       t  <- unifyVar γπ x <$> consE γπ e
-       addC (SubC γπ t spect') ("consBind" ++ showPpr e)
-       addIdA x (defAnn isRec t)
-       return $ Just t
 
 consBind isRec γ (x, e, Nothing)
   = do t <- unifyVar γ x <$> consE (γ `setBind` x) e
