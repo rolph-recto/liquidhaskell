@@ -307,21 +307,10 @@ delete x t = case split x t of
 True
 -}
 
-{-@ union :: Ord a => OSplay a -> OSplay a -> OSplay a@-}
+{-@ union :: Ord a => x:OSplay a -> y:OSplay a -> OSplay a / [(slen x) + (slen y)] @-}
 union :: Ord a => Splay a -> Splay a -> Splay a
-union a b = unionT a b (slen a + slen b)
---LIQUID union Leaf t = t
---LIQUID union (Node x a b) t = Node x (union ta a) (union tb b)
---LIQUID   where
---LIQUID     (ta,_,tb) = split x t
-
-{-@ unionT :: Ord a => a:OSplay a -> b:OSplay a -> SumSLen a b -> OSplay a @-}
-{-@ Decrease unionT 4 @-}
-{- LIQUID WITNESS -}
-unionT :: Ord a => Splay a -> Splay a -> Int -> Splay a
-unionT Leaf         t _ = t
-unionT (Node x a b) t _ = Node x (unionT ta a (slen ta + slen a))
-                                 (unionT tb b (slen tb + slen b))
+union Leaf t = t
+union (Node x a b) t = Node x (union ta a) (union tb b)
   where
     (ta,_,tb) = split x t
 
@@ -332,26 +321,13 @@ unionT (Node x a b) t _ = Node x (unionT ta a (slen ta + slen a))
 True
 -}
 
-{-@ intersection :: Ord a => OSplay a -> OSplay a -> OSplay a @-}
+{-@ intersection :: Ord a => x:OSplay a -> y:OSplay a -> OSplay a / [(slen x) + (slen y)] @-}
 intersection :: Ord a => Splay a -> Splay a -> Splay a
-intersection a b = intersectionT a b (slen a + slen b)
---LIQUID intersection Leaf _          = Leaf
---LIQUID intersection _ Leaf          = Leaf
---LIQUID intersection t1 (Node x l r) = case split x t1 of
---LIQUID     (l', True,  r') -> Node x (intersection l' l) (intersection r' r)
---LIQUID     (l', False, r') -> union (intersection l' l) (intersection r' r)
-
-{-@ intersectionT :: Ord a => a:OSplay a -> b:OSplay a -> SumSLen a b -> OSplay a @-}
-{-@ Decrease intersectionT 4 @-}
-{- LIQUID WITNESS -}
-intersectionT :: Ord a => Splay a -> Splay a -> Int -> Splay a
-intersectionT Leaf _          _ = Leaf
-intersectionT _ Leaf          _ = Leaf
-intersectionT t1 (Node x l r) _ = case split x t1 of
-    (l', True,  r') -> Node x (intersectionT l' l (slen l' + slen l))
-                              (intersectionT r' r (slen r' + slen r))
-    (l', False, r') -> union (intersectionT l' l (slen l' + slen l))
-                             (intersectionT r' r (slen r' + slen r))
+intersection Leaf _          = Leaf
+intersection _ Leaf          = Leaf
+intersection t1 (Node x l r) = case split x t1 of
+    (l', True,  r') -> Node x (intersection l' l) (intersection r' r)
+    (l', False, r') -> union (intersection l' l) (intersection r' r)
 
 {-| Creating a difference set from sets.
 
@@ -359,23 +335,11 @@ intersectionT t1 (Node x l r) _ = case split x t1 of
 True
 -}
 
-{-@ difference :: Ord a => OSplay a -> OSplay a -> OSplay a @-}
+{-@ difference :: Ord a => x:OSplay a -> y:OSplay a -> OSplay a / [(slen x) + (slen y)] @-}
 difference :: Ord a => Splay a -> Splay a -> Splay a
-difference a b = differenceT a b (slen a + slen b)
---LIQUID difference Leaf _          = Leaf
---LIQUID difference t1 Leaf         = t1
---LIQUID difference t1 (Node x l r) = union (difference l' l) (difference r' r)
---LIQUID   where
---LIQUID     (l',_,r') = split x t1
-
-{-@ differenceT :: Ord a => a:OSplay a -> b:OSplay a -> SumSLen a b -> OSplay a @-}
-{-@ Decrease differenceT 4 @-}
-{- LIQUID WITNESS -}
-differenceT :: Ord a => Splay a -> Splay a -> Int -> Splay a
-differenceT Leaf _          _ = Leaf
-differenceT t1 Leaf         _ = t1
-differenceT t1 (Node x l r) _ = union (differenceT l' l (slen l' + slen l))
-                                      (differenceT r' r (slen r' + slen r))
+difference Leaf _          = Leaf
+difference t1 Leaf         = t1
+difference t1 (Node x l r) = union (difference l' l) (difference r' r)
   where
     (l',_,r') = split x t1
 
