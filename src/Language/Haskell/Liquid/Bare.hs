@@ -42,6 +42,8 @@ import qualified Control.Exception as Ex
 -- import Data.Data                hiding (TyCon, tyConName)
 import Data.Bifunctor
 import Data.Function            (on)
+import Data.Generics.Aliases    (mkT)
+import Data.Generics.Schemes    (everywhere)
 
 import Language.Fixpoint.Misc
 import Language.Fixpoint.Names                  (propConName, takeModuleNames, dropModuleNames)
@@ -152,7 +154,7 @@ makeGhcSpec' cfg vars defVars exports specs
                                                  ]
        quals           <- mconcat <$> mapM makeQualifiers specs
        let renamedSigs = renameTyVars <$> tx sigs
-           pluggedSigs = [ (x, plugHoles r τ <$> t)
+           pluggedSigs = [ (x, plugHoles embs tcEnv r τ <$> t)
                          | (x, t) <- renamedSigs
                          , let τ = expandTypeSynonyms $ varType x
                          , let r = maybeTrue x name exports]
@@ -684,8 +686,8 @@ mkVarSpec (v, Loc l _, b) = tx <$> mkSpecType l b
   where
     tx = (v,) . Loc l . generalize
 
-plugHoles :: (RReft -> RReft) -> Type -> SpecType -> SpecType
-plugHoles f t st = mkArrow αs ps cs' $ go rt' st''
+--plugHoles :: (RReft -> RReft) -> Type -> SpecType -> SpecType
+plugHoles tce tyi f t st = mkArrow αs ps cs' $ go rt' st''
   where
     (αs, _, rt)  = bkUniv (ofType t :: SpecType)
     (cs, rt')    = bkClass rt
@@ -694,8 +696,10 @@ plugHoles f t st = mkArrow αs ps cs' $ go rt' st''
     (_, st'')    = bkClass st'
     cs'          = [(dummySymbol, RCls c t) | (c,t) <- cs]
 
-    go t                (RHole r)          = addHoles t { rt_reft = f r }
-      where addHoles = fmap (const $ f $ uReft (S "v", [hole]))
+    go t                (RHole r)          = addHoles t' { rt_reft = f r }
+      where
+        t'       = everywhere (mkT $ addRefs tce tyi) t
+        addHoles = fmap (const $ f $ uReft (S "v", [hole]))
     go (RVar _ _)       v@(RVar _ _)       = v
     go (RFun _ i o _)   (RFun x i' o' r)   = RFun x (go i i') (go o o') r
     go (RAllT _ t)      (RAllT a t')       = RAllT a $ go t t'
@@ -708,6 +712,17 @@ plugHoles f t st = mkArrow αs ps cs' $ go rt' st''
      where
        err = ErrOther $ text msg
        msg = printf "plugHoles: unhandled case!\nt  = %s\nst = %s\n" (showpp t) (showpp st)
+
+addRefs :: TCEmb TyCon
+     -> M.HashMap TyCon RTyCon
+     -> SpecType
+     -> SpecType
+addRefs tce tyi (RApp c ts _ r) = RApp c' ts ps r
+  where
+    RApp c' _ ps _ = expandRApp tce tyi (RApp c ts [] r)
+    ps'            = safeZip "addRefHoles" ps (rTyConPs c')
+addRefs _ _ t  = t
+
 
 showTopLevelVars vs = 
   forM vs $ \v -> 

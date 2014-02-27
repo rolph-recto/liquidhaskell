@@ -113,16 +113,14 @@ empty = PS nullForeignPtr 0 0
 {-@ spanByte :: Word8 -> b:ByteString -> (ByteStringPair b) @-}
 spanByte :: Word8 -> ByteString -> (ByteString, ByteString)
 spanByte c ps@(PS x s l) = inlinePerformIO $ withForeignPtr x $ \p ->
-    go l (p `plusPtr` s) 0
+    go (p `plusPtr` s) 0
   where
-    {-@ go :: d:_ -> p:_ -> i:_ -> _ @-}
---    STRICT3(go)
-    {- LIQUID WITNESS -}
-    go (d::Int) p i | i >= l    = return (ps, empty)
-                    | otherwise = do c' <- peekByteOff p i
-                                     if c /= c'
-                                       then return (unsafeTake i ps, unsafeDrop i ps)
-                                       else go (d-1) p (i+1)
+    {-@ go :: p:_ -> i:_ -> _ / [(plen p) - i] @-}
+    go p i | i >= l    = return (ps, empty)
+           | otherwise = do c' <- peekByteOff p i
+                            if c /= c'
+                              then return (unsafeTake i ps, unsafeDrop i ps)
+                              else go p (i+1)
 {- INLINE spanByte #-}
 
 

@@ -39,11 +39,11 @@ import Var
 import Id
 import Name            -- (getSrcSpan, getOccName)
 import NameSet
-import Text.PrettyPrint.HughesPJ
+import Text.PrettyPrint.HughesPJ hiding (first)
 
 import Control.Monad.State
 
-import Control.Applicative      ((<$>))
+import Control.Applicative      ((<$>), (<*>))
 import Control.Exception.Base
 
 import Data.Monoid              (mconcat, mempty)
@@ -104,7 +104,7 @@ initEnv info penv
   = do let tce   = tcEmbeds $ spec info
        defaults <- forM (impVars info) $ \x -> liftM (x,) (trueTy $ varType x)
        tyi      <- tyConInfo <$> get 
-       let f0    = grty info                        -- asserted refinements     (for defined vars)
+       (hs,f0)  <- refreshHoles $ grty info         -- asserted refinements     (for defined vars)
        f0''     <- grtyTop info >>= refreshArgs'    -- default TOP reftype      (for exported vars without spec)
        let f0'   = if (notruetypes $ config $ spec info) then [] else f0''
        f1       <- refreshArgs' $ defaults          -- default TOP reftype      (for all vars)
@@ -113,11 +113,21 @@ initEnv info penv
        let bs    = (map (unifyts' tce tyi penv)) <$> [f0 ++ f0', f1, f2, f3]
        lts      <- lits <$> get
        let tcb   = mapSnd (rTypeSort tce ) <$> concat bs
-       let γ0    = measEnv (spec info) penv (head bs) (cbs info) (tcb ++ lts)
+       let γ0    = measEnv (spec info) penv (head bs) (cbs info) (tcb ++ lts) hs
        foldM (++=) γ0 [("initEnv", x, y) | (x, y) <- concat $ tail bs]
   where
     refreshArgs' = mapM (mapSndM refreshArgs)
+
+    refreshHoles vts = first catMaybes . unzip . map extract <$> mapM refreshHoles' vts
+    refreshHoles' (x,t)
+      | noHoles t = return (Nothing,x,t)
+      | otherwise = (Just $ F.symbol x,x,) <$> mapReftM tx t
+      where
+        tx r | hasHole r = refresh r
+             | otherwise = return r
+    extract (a,b,c) = (a,(b,c))
   -- where tce = tcEmbeds $ spec info
+
 
 ctor' = map (mapSnd val) . ctors
 
@@ -127,7 +137,7 @@ unifyts penv (x, t) = (x', unify pt t)
  where pt = F.lookupSEnv x' penv
        x' = F.symbol x
 
-measEnv sp penv xts cbs lts
+measEnv sp penv xts cbs lts hs
   = CGE { loc   = noSrcSpan
         , renv  = fromListREnv $ second (uRType . val) <$> meas sp
         , syenv = F.fromListSEnv $ freeSyms sp
@@ -141,6 +151,7 @@ measEnv sp penv xts cbs lts
         , tgKey = Nothing
         , trec  = Nothing
         , lcb   = M.empty
+        , holes = fromListHEnv hs
         } 
     where
       tce = tcEmbeds sp
@@ -191,6 +202,7 @@ data CGEnv
         , tgKey :: !(Maybe Tg.TagKey)  -- ^ Current top-level binder
         , trec  :: !(Maybe (M.HashMap F.Symbol SpecType)) -- ^ Type of recursive function with decreasing constraints
         , lcb   :: !(M.HashMap F.Symbol CoreExpr) -- ^ Let binding that have not been checked
+        , holes :: !HEnv               -- ^ Types with holes, will need refreshing
         } -- deriving (Data, Typeable)
 
 instance PPrint CGEnv where
@@ -1023,7 +1035,7 @@ consCB _ γ (NonRec x e)
        extender γ (x, to')
 
 consBind isRec γ (x, e, Just spect)
-  | noHoles spect
+  | not $ F.symbol x `elemHEnv` holes γ
   = do let γ' = (γ `setLoc` getSrcSpan x) `setBind` x
            πs = snd3 $ bkUniv spect
        γπ    <- foldM addPToEnv γ' πs
@@ -1031,9 +1043,8 @@ consBind isRec γ (x, e, Just spect)
        addIdA x (defAnn isRec spect)
        return $ Just spect -- Nothing
   | otherwise
-  = do spect' <- fmap killSubst <$> refreshHoles spect
-       let γ' = (γ `setLoc` getSrcSpan x) `setBind` x
-           -- spect' = fmap killSubst spect
+  = do let spect' = killSubst <$> spect
+           γ' = (γ `setLoc` getSrcSpan x) `setBind` x
            πs = snd3 $ bkUniv spect'
        γπ    <- foldM addPToEnv γ' πs
        addW $ WfC γπ spect'
@@ -1048,12 +1059,6 @@ consBind isRec γ (x, e, Nothing)
        return $ Just t
 
 noHoles = and . foldReft (\r bs -> not (hasHole r) : bs) []
-
-refreshHoles :: SpecType -> CG SpecType
-refreshHoles = mapReftM f
-  where
-    f r | hasHole r = refresh r
-        | otherwise = return r
 
 killSubst :: RReft -> RReft
 killSubst = fmap tx
@@ -1464,7 +1469,7 @@ subsTyVar_meet' (α, t) = subsTyVar_meet (α, toRSort t, t)
 -----------------------------------------------------------------------
 
 instance NFData CGEnv where
-  rnf (CGE x1 x2 x3 x4 x5 x6 x7 x8 _ x9 x10 _ _) 
+  rnf (CGE x1 x2 x3 x4 x5 x6 x7 x8 _ x9 x10 _ _ _) 
     = x1 `seq` rnf x2 `seq` seq x3 `seq` x4 `seq` rnf x5 `seq` 
       rnf x6  `seq` x7 `seq` rnf x8 `seq` rnf x9 `seq` rnf x10
 
@@ -1693,3 +1698,7 @@ updateCs kvars cs
         F.Reft(_, lhspds) = lhs
         lhsconcs = [p | F.RConc p <- lhspds]
 
+newtype HEnv = HEnv (S.HashSet F.Symbol)
+
+fromListHEnv = HEnv . S.fromList
+elemHEnv x (HEnv s) = x `S.member` s

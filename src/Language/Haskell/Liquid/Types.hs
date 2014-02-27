@@ -288,7 +288,7 @@ data PVar t
        , parg  :: !Symbol
        , pargs :: ![(t, Symbol, Expr)]
        }
-	deriving (Show)
+       deriving (Show, Data, Typeable)
 
 instance Eq (PVar t) where
   pv == pv' = (pname pv == pname pv') {- UNIFY: What about: && eqArgs pv pv' -}
@@ -310,7 +310,7 @@ instance Hashable (PVar a) where
 --------------------------------------------------------------------
 
 type UsedPVar      = PVar ()
-newtype Predicate  = Pr [UsedPVar] -- deriving (Data, Typeable) 
+newtype Predicate  = Pr [UsedPVar] deriving (Data, Typeable) 
 
 instance NFData Predicate where
   rnf _ = ()
@@ -356,14 +356,14 @@ instance NFData RTyVar where
 
 
 -- MOVE TO TYPES
-newtype RTyVar = RTV TyVar
+newtype RTyVar = RTV TyVar deriving (Data,Typeable)
 
 data RTyCon = RTyCon 
   { rTyCon     :: !TyCon            -- GHC Type Constructor
   , rTyConPs   :: ![RPVar]          -- Predicate Parameters
   , rTyConInfo :: !TyConInfo        -- TyConInfo
   }
-  -- deriving (Data, Typeable)
+  deriving (Data, Typeable)
 
 -----------------------------------------------------------------------
 ----------- TyCon get CoVariance - ContraVariance Info ----------------
@@ -389,7 +389,7 @@ data TyConInfo = TyConInfo
   , covariantPsArgs     :: ![Int] -- indexes of covariant predicate arguments
   , contravariantPsArgs :: ![Int] -- indexes of contravariant predicate arguments
   , sizeFunction        :: !(Maybe (Symbol -> Expr))
-  }
+  } deriving (Data,Typeable)
 
 
 --------------------------------------------------------------------
@@ -460,16 +460,19 @@ data RType p c tv r
 
   | RHole r -- ^ let LH match against the Haskell type and add k-vars, e.g. `x:_`
             --   see tests/pos/Holes.hs
+  deriving (Data,Typeable)
 
 -- MOVE TO TYPES
 
 data Ref t s m 
   = RMono [(Symbol, t)] s
   | RPoly [(Symbol, t)] m
+  deriving (Data,Typeable)
 
 -- MOVE TO TYPES
 data UReft r
   = U { ur_reft :: !r, ur_pred :: !Predicate }
+  deriving (Data,Typeable)
 
 -- MOVE TO TYPES
 type BRType     = RType LocString LocString String
