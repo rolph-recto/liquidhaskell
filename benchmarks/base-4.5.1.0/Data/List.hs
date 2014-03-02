@@ -344,7 +344,6 @@ nubBy eq (x:xs)         =  x : nubBy eq (filter (\ y -> not (eq x y)) xs)
 #else
 nubBy eq l              = nubBy' l []
   where
-    {-@ Decrease nubBy' 3 @-}
     nubBy' [] _          = []
     nubBy' (y:ys) xs
        | elem_by eq y xs = nubBy' ys xs
@@ -605,6 +604,7 @@ genericLength (_:l)     =  1 + genericLength l
   "genericLengthInteger" genericLength = (strictGenericLength :: [a] -> Integer);
  #-}
 
+{-@ strictGenericLength     :: (Num i) => [b] -> i @-}
 strictGenericLength     :: (Num i) => [b] -> i
 strictGenericLength l   =  gl l 0
                         where
@@ -764,7 +764,7 @@ groupBy eq (x:xs)       =  (x:ys) : groupBy eq zs
 --
 -- Note that 'inits' has the following strictness property:
 -- @inits _|_ = [] : _|_@
-{-@ inits               :: [a] -> {v:[[a]] | (len v) > 0} @-
+{-@ inits               :: [a] -> {v:[[a]] | (len v) > 0} @-}
 inits                   :: [a] -> [[a]]
 inits xs                =  [] : case xs of
                                   []      -> []
@@ -848,26 +848,23 @@ Fixes ticket http://hackage.haskell.org/trac/ghc/ticket/2143
 {-@ type OList a = [a] @-}
 
 sort = sortBy compare
-sortBy cmp xs = mergeAll cmp $ sequences xs 0
-  where    
-    {-@ Decrease sequences  3 4 @-}
-    {- LIQUID WITNESS -}
-    sequences (a:b:xs) (_::Int)
-      | a `cmp` b == GT = descending b [a]  xs 1
-      | otherwise       = ascending  b (a:) xs 1
-    sequences xs _      = [xs]
+sortBy cmp xs = mergeAll cmp $ sequences xs
+  where
+    {- sequences :: xs:_ -> _ / [(len xs), 0] @-}
+    sequences (a:b:xs)
+      | a `cmp` b == GT = descending b [a]  xs
+      | otherwise       = ascending  b (a:) xs
+    sequences xs        = [xs]
 
-    {-@ Decrease descending 5 6 @-}
-    {- LIQUID WITNESS -}
-    descending a as (b:bs) (_::Int)
-      | a `cmp` b == GT  = descending b (a:as) bs 1 
-    descending a as bs _ = (a:as): sequences bs 0
+    {- descending :: a:_ -> as:_ -> bs:_ -> _ / [(len bs), 1] @-}
+    descending a as (b:bs)
+      | a `cmp` b == GT  = descending b (a:as) bs
+    descending a as bs   = (a:as): sequences bs
 
-    {-@ Decrease ascending  5 6 @-}
-    {- LIQUID WITNESS -}
-    ascending a as (b:bs) (_::Int)
-      | a `cmp` b /= GT = ascending b (\ys -> as (a:ys)) bs 1
-    ascending a as bs _ = as [a]: sequences bs 0
+    {- ascending :: a:_ -> as:_ -> bs:_ -> _ / [(len bs), 1] @-}
+    ascending a as (b:bs)
+      | a `cmp` b /= GT = ascending b (\ys -> as (a:ys)) bs
+    ascending a as bs   = as [a]: sequences bs
 
 mergeAll cmp []  = []
 mergeAll cmp [x] = x
@@ -1026,7 +1023,7 @@ rqpart cmp x (y:ys) rle rgt r =
 --
 -- LIQUID TERMINATION : 
 -- this function can not termination, eg f x = Just (b, b+1) 
-{-@ Strict Data.List.unfoldr @-} 
+{-@ Lazy unfoldr @-} 
 unfoldr      :: (b -> Maybe (a, b)) -> b -> [a]
 unfoldr f b  =
   case f b of
@@ -1034,7 +1031,6 @@ unfoldr f b  =
    Nothing        -> []
 
 -- -----------------------------------------------------------------------------
-{-@ Decrease lgo 5 @-}
 -- | A strict version of 'foldl'.
 foldl'           :: (a -> b -> a) -> a -> [b] -> a
 #ifdef __GLASGOW_HASKELL__
@@ -1049,12 +1045,14 @@ foldl' f a (x:xs) = let a' = f a x in a' `seq` foldl' f a' xs
 #ifdef __GLASGOW_HASKELL__
 -- | 'foldl1' is a variant of 'foldl' that has no starting value argument,
 -- and thus must be applied to non-empty lists.
+{-@ foldl1 :: (a -> a -> a) -> {v:[a] | (len v) > 0} -> a @-}
 foldl1                  :: (a -> a -> a) -> [a] -> a
 foldl1 f (x:xs)         =  foldl f x xs
 foldl1 _ []             =  errorEmptyList "foldl1"
 #endif /* __GLASGOW_HASKELL__ */
 
 -- | A strict version of 'foldl1'
+{-@ foldl1' :: (a -> a -> a) -> {v:[a] | (len v) > 0} -> a @-}
 foldl1'                  :: (a -> a -> a) -> [a] -> a
 foldl1' f (x:xs)         =  foldl' f x xs
 foldl1' _ []             =  errorEmptyList "foldl1'"

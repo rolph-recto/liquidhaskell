@@ -711,6 +711,7 @@ findIndices f = B.findIndices (f . w2c)
 -- > count '\n' == length . lines
 --
 -- But more efficiently than using length on the intermediate list.
+{-@ count :: Char -> b:ByteString -> {v:Nat | v <= (bLength b)} @-}
 count :: Char -> ByteString -> Int
 count c = B.count (c2w c)
 
@@ -741,6 +742,7 @@ filter f = B.filter (f . w2c)
 -- filterChar is around 10x faster, and uses much less space, than its
 -- filter equivalent
 --
+{-@ filterChar :: Char -> ByteString -> ByteString @-}
 filterChar :: Char -> ByteString -> ByteString
 filterChar c ps = replicate (count c ps) c
 {-# INLINE filterChar #-}
@@ -836,6 +838,7 @@ unsafeHead  = w2c . B.unsafeHead
 -- 
 -- > break isSpace == breakSpace
 --
+{-@ breakSpace :: ByteString -> (ByteString,ByteString) @-}
 breakSpace :: ByteString -> (ByteString,ByteString)
 breakSpace (PS x s l) = inlinePerformIO $ withForeignPtr x $ \p -> do
     i <- firstspace (p `plusPtr` s) 0 l
@@ -846,18 +849,13 @@ breakSpace (PS x s l) = inlinePerformIO $ withForeignPtr x $ \p -> do
     }
 {-# INLINE breakSpace #-}
 
+{-@ firstspace :: _ -> n:_ -> m:_ -> _ / [(m - n)] @-}
 firstspace :: Ptr Word8 -> Int -> Int -> IO Int
 STRICT3(firstspace)
---LIQUID GHOST firstspace ptr n m
---LIQUID GHOST     | n >= m    = return n
---LIQUID GHOST     | otherwise = do w <- peekByteOff ptr n
---LIQUID GHOST                      if (not $ isSpaceWord8 w) then firstspace ptr (n+1) m else return n
-firstspace ptr n m = go m ptr n m
-  {- LIQUID WITNESS -}
-  where go (d :: Int) ptr n m
-            | n >= m    = return n
-            | otherwise = do w <- peekByteOff ptr n
-                             if (not $ isSpaceWord8 w) then go (d-1) ptr (n+1) m else return n
+firstspace ptr n m
+    | n >= m    = return n
+    | otherwise = do w <- peekByteOff ptr n
+                     if (not $ isSpaceWord8 w) then firstspace ptr (n+1) m else return n
 
 {-# RULES
     "FPS specialise dropWhile isSpace -> dropSpace"
@@ -870,24 +868,20 @@ firstspace ptr n m = go m ptr n m
 -- 
 -- > dropWhile isSpace == dropSpace
 --
+{-@ dropSpace :: ByteString -> ByteString @-}
 dropSpace :: ByteString -> ByteString
 dropSpace (PS x s l) = inlinePerformIO $ withForeignPtr x $ \p -> do
     i <- firstnonspace (p `plusPtr` s) 0 l
     return $! if i == l then empty else PS x (s+i) (l-i)
 {-# INLINE dropSpace #-}
 
+{-@ firstnonspace :: _ -> n:_ -> m:_ -> _ / [(m - n)] @-}
 firstnonspace :: Ptr Word8 -> Int -> Int -> IO Int
 STRICT3(firstnonspace)
---LIQUID GHOST firstnonspace ptr n m
---LIQUID GHOST     | n >= m    = return n
---LIQUID GHOST     | otherwise = do w <- peekElemOff ptr n
---LIQUID GHOST                      if isSpaceWord8 w then firstnonspace ptr (n+1) m else return n
-firstnonspace ptr n m = go m ptr n m
-  {- LIQUID WITNESS -}
-  where go (d :: Int) ptr n m
-            | n >= m    = return n
-            | otherwise = do w <- peekElemOff ptr n
-                             if isSpaceWord8 w then go (d-1) ptr (n+1) m else return n
+firstnonspace ptr n m
+    | n >= m    = return n
+    | otherwise = do w <- peekElemOff ptr n
+                     if isSpaceWord8 w then firstnonspace ptr (n+1) m else return n
 
 {-
 -- | 'dropSpaceEnd' efficiently returns the 'ByteString' argument with

@@ -263,11 +263,10 @@ loopU f start (PS z s i) = unsafePerformIO $ withForeignPtr z $ \a -> do
     return (acc :*: ps)
 
   where
-    go p ma = trans i 0 0
+    go p ma = trans 0 0
         where
-            STRICT4(trans)
-            {- LIQUID WITNESS -}
-            trans (d :: Int) a_off ma_off acc
+            STRICT3(trans)
+            trans a_off ma_off acc
                 | a_off >= i = return (acc :*: ma_off)
                 | otherwise  = do
                     x <- peekByteOff p a_off
@@ -276,7 +275,7 @@ loopU f start (PS z s i) = unsafePerformIO $ withForeignPtr z $ \a -> do
                         NothingS -> return ma_off
                         JustS e  -> do pokeByteOff ma ma_off e
                                        return $ ma_off + 1
-                    trans (d-1) (a_off+1) ma_off' acc'
+                    trans (a_off+1) ma_off' acc'
 
 -- a_off = i - d
 {-@ qualif Decr(v:Int, x: Int, y:Int): v = x - y @-} 
