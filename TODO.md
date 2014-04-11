@@ -15,7 +15,8 @@ TODO
 lazy instantiation
 ------------------
 
-Liquid Type Error: Base.hs:2469:32-45 ****************************
+Liquid Type Error: Base.hs:2469:32-45
+
 
 
 

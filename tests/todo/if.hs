@@ -25,3 +25,13 @@ bog =
         _   -> 0
 
 
+{-@ fog :: Nat @-}
+bog :: Int
+bog =
+  let b = (0 < 1)      -- :: TT
+      x = 1            -- :: Nat
+      y = 0-1          -- :: Int
+      z = if_ b xs ys  -- :: Nat 
+  in 
+      z
+

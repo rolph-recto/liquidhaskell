@@ -1,6 +1,8 @@
 module spec GHC.ForeignPtr where
 
 measure fplen :: GHC.ForeignPtr.ForeignPtr a -> GHC.Types.Int
+-- fplen (GHC.ForeignPtr.ForeignPtr a x) = (addrLen a)
+
 
 type ForeignPtrV a   = {v: (GHC.ForeignPtr.ForeignPtr  a) | 0 <= (fplen v)}
 type ForeignPtrN a N = {v: (ForeignPtrV a) | (fplen v) = N }
