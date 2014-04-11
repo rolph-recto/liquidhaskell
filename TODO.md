@@ -224,10 +224,12 @@ vector
 Dependency order for vector 
 
 [ 1 of 19] Compiling Data.Vector.Storable.Internal
-
 [ 2 of 19] Compiling Data.Vector.Fusion.Util           
-[ 3 of 19] Compiling Data.Vector.Fusion.Stream.Size    
+[ 3 of 19] Compiling Data.Vector.Fusion.Stream.Size     (REVISIT?)
 [ 4 of 19] Compiling Data.Vector.Internal.Check        
+
+HEREHEREHERE
+
 [ 5 of 19] Compiling Data.Vector.Fusion.Stream.Monadic 
 [ 6 of 19] Compiling Data.Vector.Fusion.Stream         
 [ 7 of 19] Compiling Data.Vector.Generic.Mutable       
