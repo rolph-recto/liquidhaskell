@@ -209,16 +209,16 @@ expandRTAliasDef d
        body <- expandRTAliasBody (loc $ measure d) env $ body d
        return $ d { body = body }
 
-expandRTAliasBody :: Show p => p -> RTEnv -> Body -> BareM Body
+-- expandRTAliasBody :: Show p => p -> RTEnv -> Body -> BareM Body
 expandRTAliasBody l env (P p)   = P   <$> (expPAlias l p)
 expandRTAliasBody l env (R x p) = R x <$> (expPAlias l p)
 expandRTAliasBody l _   (E e)   = E   <$> resolve e
 
-expPAlias :: Show p => p -> Pred -> BareM Pred
+-- expPAlias :: Show p => p -> Pred -> BareM Pred
 expPAlias l = expandPAlias l []
 
 
-expandRTAlias   :: Show p => p -> BareType -> BareM SpecType
+-- expandRTAlias   :: Show p => p -> BareType -> BareM SpecType
 expandRTAlias l bt = expType =<< expReft bt
   where 
     expReft      = mapReftM (txPredReft expPred)
@@ -236,7 +236,7 @@ txPredReft f (U r p l) = (\r -> U r p l) <$> txPredReft' f r
 
 expandRPAliasE l = expandPAlias l []
 
-expandAlias :: Show p => p -> [String] -> BareType -> BareM SpecType
+-- expandAlias :: Show p => p -> [String] -> BareType -> BareM SpecType
 expandAlias l = go
   where
     go s t@(RApp (Loc _ c) _ _ _)
@@ -288,7 +288,7 @@ lookupExpandRTApp l s (RApp lc@(Loc _ c) ts rs r) = do
     go s (RPoly ss t)    = RPoly <$> mapM ofSyms ss <*> expandAlias l s t
 
 
-expandRTApp :: Show p => p -> [String] -> RTAlias RTyVar SpecType  -> [BareType] -> RReft -> BareM SpecType
+-- expandRTApp :: Show p => p -> [String] -> RTAlias RTyVar SpecType  -> [BareType] -> RReft -> BareM SpecType
 expandRTApp l s rta args r
   | length args == (length αs) + (length εs)
   = do args'  <- mapM (expandAlias l s) args
@@ -296,19 +296,18 @@ expandRTApp l s rta args r
            αts = zipWith (\α t -> (α, toRSort t, t)) αs ts
        return $ subst su . (`strengthen` r) . subsTyVars_meet αts $ rtBody rta
   | otherwise
-  = errortext $ (text msg)
+  = Ex.throw $ ErrTyAlias (sourcePosSrcSpan l) (text $ rtName rta) (length αs + length εs) (length args) (sourcePosSrcSpan $ srcPos rta)
   where
     su        = mkSubst $ zip (stringSymbol . showpp <$> εs) es
     αs        = rtTArgs rta 
     εs        = rtVArgs rta
---    msg       = rtName rta ++ " " ++ join (map showpp args)
-    es_       = drop (length αs) args
-    es        = map (exprArg msg) es_
-    msg = "Malformed type alias application at " ++ show l ++ "\n\t"
-               ++ show (rtName rta) 
-               ++ " defined at " ++ show (srcPos rta)
-               ++ "\n\texpects " ++ show (length αs + length εs)
-               ++ " arguments but it is given " ++ show (length args)
+    es        = map (exprArg msg) $ drop (length αs) args
+    msg       = "Malformed type alias application at " ++ show l
+    --           ++ show (rtName rta) 
+    --           ++ " defined at " ++ show (srcPos rta)
+    --           ++ "\n\texpects " ++ show (length αs + length εs)
+    --           ++ " arguments but it is given " ++ show (length args)
+
 -- | exprArg converts a tyVar to an exprVar because parser cannot tell 
 -- HORRIBLE HACK To allow treating upperCase X as value variables X
 -- e.g. type Matrix a Row Col = List (List a Row) Col
@@ -326,7 +325,7 @@ exprArg msg (RAppTy (RVar f _) t _)
 exprArg msg z 
   = errorstar $ printf "Unexpected expression parameter: %s in %s" (show z) msg 
 
-expandPAlias :: Show p => p -> [Symbol] -> Pred -> BareM Pred
+-- expandPAlias :: Show p => p -> [Symbol] -> Pred -> BareM Pred
 expandPAlias l = go
   where 
     go s p@(PBexp (EApp f@(Loc _ f') es))
@@ -742,7 +741,7 @@ makeInvariants' ts = mapM mkI ts
 
 mkSpecType l t = mkSpecType' l (ty_preds $ toRTypeRep t)  t
 
-mkSpecType' :: Show p => p -> [PVar BSort] -> BareType -> BareM SpecType
+-- mkSpecType' :: Show p => p -> [PVar BSort] -> BareType -> BareM SpecType
 mkSpecType' l πs = expandRTAlias l . txParams subvUReft (uPVar <$> πs)
 
 makeSymbols vs xs' xts yts ivs = mkxvs

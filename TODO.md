@@ -224,6 +224,7 @@ vector
 Dependency order for vector 
 
 [ 1 of 19] Compiling Data.Vector.Storable.Internal
+
 [ 2 of 19] Compiling Data.Vector.Fusion.Util           
 [ 3 of 19] Compiling Data.Vector.Fusion.Stream.Size    
 [ 4 of 19] Compiling Data.Vector.Internal.Check        

@@ -1083,6 +1083,7 @@ instance PPrint SortedReft where
 ------------------------------------------------------------------------
 
 type ErrorResult = FixResult Error
+
 data Error = 
 -- | INVARIANT : all Error constructors should hava a pos field
     ErrSubType  { pos :: !SrcSpan
@@ -1113,7 +1114,13 @@ data Error =
   | ErrDupSpecs { pos :: !SrcSpan
                 , var :: !Doc
                 , locs:: ![SrcSpan]
-                } -- ^ multiple specs for same binder error 
+                } -- ^ multiple specs for same binder error
+  | ErrTyAlias {  pos :: !SrcSpan
+                , var :: !Doc
+                , dar :: !Int
+                , uar :: !Int 
+                , dloc:: !SrcSpan
+                } -- ^ malformed alias application
   | ErrInvt     { pos :: !SrcSpan
                 , inv :: !SpecType
                 , msg :: !Doc

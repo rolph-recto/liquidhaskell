@@ -1120,6 +1120,18 @@ ppError (ErrOther s)
   = text "Unexpected Error: " 
     $+$ (nest 4 s)
 
+ppError (ErrTyAlias l n dArity uArity ld)
+  = text "Malformed type alias application for" <+> n <> colon <+> pprint l
+    $+$ text "Expects:" <+> int dArity <+> text "at" <+> (parens $ pprint ld)
+    $+$ text "Given  :" <+> int uArity <+> text "at" <+> (parens $ pprint l)
+
+    --           ++ show (rtName rta) 
+    --           ++ " defined at " ++ show (srcPos rta)
+    --           ++ "\n\texpects " ++ show (length αs + length εs)
+    --           ++ " arguments but it is given " ++ show (length args)
+
+
+
 
 ppVar v = text "`" <> v <> text "'"
 -------------------------------------------------------------------------------
