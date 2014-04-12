@@ -83,10 +83,10 @@ Wordcount for vector
 
 Dependency order for vector 
 
-[ 1 of 19]  [45]       Data.Vector.Storable.Internal
-[ 2 of 19]  [57]       Data.Vector.Fusion.Util           
-[ 4 of 19]  [163]      Data.Vector.Internal.Check        
-[ 3 of 19]  [87]       Data.Vector.Fusion.Stream.Size      (SKIP:STREAM?)
+[ 1 of 19]  [45]      Data.Vector.Storable.Internal
+[ 2 of 19]  [57]      Data.Vector.Fusion.Util           
+[ 4 of 19]  [163]     Data.Vector.Internal.Check        
+[ 3 of 19]  [87]      Data.Vector.Fusion.Stream.Size      (SKIP:STREAM?)
 [ 5 of 19]  [1476]    Data.Vector.Fusion.Stream.Monadic   (SKIP:STREAM?) 
 [ 6 of 19]  [634]     Data.Vector.Fusion.Stream           (SKIP:STREAM?)   
 
@@ -96,6 +96,7 @@ HEREHEREHERE
 [ 8 of 19]  [142]     Data.Vector.Generic.Base          
 [ 9 of 19]  [172]     Data.Vector.Generic.New           
 [10 of 19]  [2027]    Data.Vector.Generic               
+
 [11 of 19]  [332]     Data.Vector.Primitive.Mutable     
 [12 of 19]  [1328]    Data.Vector.Primitive             
 [13 of 19]  [490]     Data.Vector.Storable.Mutable      
@@ -105,6 +106,73 @@ HEREHEREHERE
 [17 of 19]  [285]     Data.Vector.Unboxed.Mutable       
 [18 of 19]  [398]     Data.Vector.Mutable               
 [19 of 19]  [1510]    Data.Vector                       
+
+
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:237:108-116 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:252:107-115 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:276:94-101 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:351:95 ***
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:354:108 **
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:358:103 **
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:368:107-115 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:398:96 ***
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:402:106-107 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:402:109 **
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:406:99 ***
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:406:107 **
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:417:105-107 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:417:110 **
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:442:88 ***
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:442:90 ***
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:442:93-100 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:481:100 **
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:481:102 **
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:481:105-112 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:514:81 ***
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:520:93 ***
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:551:86-87 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:582:97 ***
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:610:84 ***
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:610:87-94 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:616:88 ***
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:616:91-98 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:622:86 ***
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:622:89-96 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:623:86 ***
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:623:89-96 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:635:96 ***
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:635:99-106 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:642:100 **
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:642:103-110 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:649:98 ***
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:649:101-108 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:650:98 ***
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:650:101-108 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:682:44-67 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:684:44-67 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:698:44-67 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:708:43-66 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:710:43-66 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:725:43-66 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:738:97 ***
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:738:99 ***
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:750:93 ***
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:762:97 ***
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:762:99 ***
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:774:90 ***
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:774:92 ***
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:785:48-52 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:801:41-43 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:802:41 ***
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:814:43-45 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:815:41 ***
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:831:103 **
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:858:103 **
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:873:103-108 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:888:99-108 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:889:103-112 
+
+
 
 hmatrix
 -------
