@@ -57,6 +57,7 @@ module Data.Vector.Generic.Mutable (
   unstablePartition, unstablePartitionStream, partitionStream
 ) where
 
+import            Language.Haskell.Liquid.Prelude (liquidAssert)
 import qualified Data.Vector.Fusion.Stream      as Stream
 import           Data.Vector.Fusion.Stream      ( Stream, MStream )
 import qualified Data.Vector.Fusion.Stream.Monadic as MStream
@@ -111,12 +112,18 @@ import qualified Data.Vector.Internal.Check as Ck
 {-@ qualif GrowBy(v:a, x:a, n:Int): (mvLen v) = (mvLen x) + n @-}
 {-@ qualif Size(v:a, n:Int): (mvLen v) = n                    @-}
 {-@ qualif Size(v:a, n:Int, m:Int): (mvLen v) = n + m         @-}
+{-@ qualif PVec(v:a): 0 <= (mvLen v)                          @-}
 
 {-@ class measure mvLen :: forall a. a -> Int @-}
 
 
+{-@ type PVec v m a        = {x: (v (PrimState m) a) | 0 <= (mvLen x)}            @-}
+{-- type VecAndIx a K      = (a, Pos) <{\vec v -> (0 < v && v <= (mvLen vec))}>   @-}
+{-@ type VecAndIx a K      = (a, Int) <{\vec v -> (ValidIx (v-K) vec)}>   @-}
+
 {-@ type Pos               = {v:Int | 0 < v }            @-}
-{-@ type OkIx X            = {v:Nat | v < (mvLen X)}     @-}
+{-@ predicate ValidIx I V  = (0 <= I && I < (mvLen V))   @-}
+{-@ type OkIx X            = {v:Int | (ValidIx v X)}     @-}
 {-@ predicate SzPlus V X N = (mvLen V) = (mvLen X) + N   @-}
 
 {-@
@@ -271,15 +278,15 @@ unsafeAppend1 v i x
                        $ unsafeWrite v' i x
                      return v'
 
-{- unsafePrepend1 :: (PrimMonad m, MVector v a)
-        => x:(v (PrimState m) a) -> {v:Nat | v < 2 * (mvLen x)} -> a -> m (v (PrimState m) a) @-}
+{-@ unsafePrepend1 :: (PrimMonad m, MVector v a)
+        => x:(PVec v m a) -> (OkIx x) -> a -> m (VecAndIx (PVec v m a) {0}) @-}
 
 unsafePrepend1 :: (PrimMonad m, MVector v a)
         => v (PrimState m) a -> Int -> a -> m (v (PrimState m) a, Int)
 {-# INLINE [0] unsafePrepend1 #-}
 unsafePrepend1 v i x
   | i /= 0    = do
-                  let i' = i-1
+                  let i' = i - 1
                   unsafeWrite v i' x
                   return (v, i')
   | otherwise = do
@@ -288,6 +295,7 @@ unsafePrepend1 v i x
                   ((Ck.checkIndex "Data/Vector/Generic/Mutable.hs" 232) Ck.Internal) "unsafePrepend1" i' (length v')
                     $ unsafeWrite v' i' x
                   return (v', i')
+
 
 mstream :: (PrimMonad m, MVector v a) => v (PrimState m) a -> MStream m a
 {-# INLINE mstream #-}
@@ -608,12 +616,12 @@ enlarge :: (PrimMonad m, MVector v a)
 enlarge v = unsafeGrow   v  (enlarge_delta v)
 
 
-{-@ enlargeFront :: (PrimMonad m, MVector v a) => x: (v (PrimState m) a) -> (m ({v:(v (PrimState m) a) | (mvLen x) < (mvLen v)}, Pos)) @-}
+{-@ enlargeFront :: (PrimMonad m, MVector v a) => x:(PVec v m a) -> (m (VecAndIx {v:(PVec v m a) | (mvLen x) < (mvLen v)} {1})) @-}
 enlargeFront :: (PrimMonad m, MVector v a)
                 => v (PrimState m) a -> m (v (PrimState m) a, Int)
 {-# INLINE enlargeFront #-}
 enlargeFront v = do
-                   v' <- unsafeGrowFront v by
+                   v' <- unsafeGrowFront  v by
                    return (v', by)
   where
     by = enlarge_delta v
@@ -639,13 +647,6 @@ unsafeGrowFront v by = ((Ck.checkLength "Data/Vector/Generic/Mutable.hs" 568) Ck
                          v' <- basicUnsafeNew (by + n)
                          basicUnsafeCopy  (basicUnsafeSlice by n v') v
                          return v'
-
-{-@ foozz :: (PrimMonad m, MVector v a)
-                        => x:(v (PrimState m) a) -> (m {v:(v (PrimState m) a) | (mvLen v) = (mvLen x)}) @-}
-foozz :: (PrimMonad m, MVector v a)
-                        => v (PrimState m) a -> m (v (PrimState m) a)
-foozz x = do v  <- basicUnsafeNew (length x )
-             return v
 
 -- Restricting memory usage
 -- ------------------------
