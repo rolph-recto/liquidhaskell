@@ -7,7 +7,7 @@
 -- Maintainer  : Roman Leshchinskiy <rl@cse.unsw.edu.au>
 -- Stability   : experimental
 -- Portability : non-portable
--- 
+--
 -- Generic interface to mutable vectors
 --
 
@@ -106,6 +106,29 @@ import qualified Data.Vector.Internal.Check as Ck
 --
 --   * 'basicUnsafeWrite'
 --
+
+{-@ class measure mvLen :: forall a. a -> Int @-}
+
+{-@ type OkIx X            = {v:Nat | v < (mvLen X)} @-}
+{-@ predicate SzPlus V X N = (mvLen V) = (mvLen X) + N @-}
+
+{-@
+class MVector v a where
+  basicLength          :: forall s. x:(v s a) -> {v:Nat | v = (mvLen x)}
+  basicUnsafeSlice     :: forall s. Int -> Int -> (v s a) -> (v s a)
+  basicOverlaps        :: forall s. (v s a) -> (v s a) -> Bool
+  basicUnsafeNew       :: forall m. PrimMonad m => Int -> (m (v (PrimState m) a))
+  basicUnsafeReplicate :: forall m. PrimMonad m => Int -> a -> (m (v (PrimState m) a))
+  basicUnsafeRead      :: forall m. PrimMonad m => x:(v (PrimState m) a) -> (OkIx x) -> (m a)
+  basicUnsafeWrite     :: forall m. PrimMonad m => x:(v (PrimState m) a) -> (OkIx x) -> a -> (m ())
+  basicClear           :: forall m. PrimMonad m => (v (PrimState m) a) -> (m ())
+  basicSet             :: forall m. PrimMonad m => (v (PrimState m) a) -> a -> (m ())
+  basicUnsafeCopy      :: forall m. PrimMonad m => (v (PrimState m) a) -> (v (PrimState m) a) -> (m ())
+  basicUnsafeMove      :: forall m. PrimMonad m => (v (PrimState m) a)  -> (v (PrimState m) a) -> (m ())
+  basicUnsafeGrow      :: forall m. PrimMonad m => x:(v (PrimState m) a) -> by:Nat -> (m {v:(v (PrimState m) a) | (mvLen v) = (mvLen x) + by })
+@-}
+
+
 class MVector v a where
   -- | Length of the mutable vector. This method should not be
   -- called directly, use 'length' instead.
@@ -200,7 +223,7 @@ class MVector v a where
                             basicUnsafeWrite dst i x
                             do_copy (i+1)
                 | otherwise = return ()
-  
+
   {-# INLINE basicUnsafeMove #-}
   basicUnsafeMove !dst !src
     | basicOverlaps dst src = do
@@ -220,6 +243,9 @@ class MVector v a where
 -- ------------------
 -- Internal functions
 -- ------------------
+
+{-@ unsafeAppend1 :: (PrimMonad m, MVector v a)
+        => x:(v (PrimState m) a) -> {v:Nat | v < 2 * (mvLen x)} -> a -> m (v (PrimState m) a) @-}
 
 unsafeAppend1 :: (PrimMonad m, MVector v a)
         => v (PrimState m) a -> Int -> a -> m (v (PrimState m) a)
@@ -424,6 +450,8 @@ munstreamRUnknown s
 -- ------
 
 -- | Length of the mutable vector.
+
+{-@ length :: MVector v a => x:(v s a) -> {v:Nat | v = (mvLen x)} @-}
 length :: MVector v a => v s a -> Int
 {-# INLINE length #-}
 length = basicLength
@@ -560,6 +588,8 @@ growFront v by = ((Ck.checkLength "Data/Vector/Generic/Mutable.hs" 537) Ck.Bound
 enlarge_delta v = max (length v) 1
 
 -- | Grow a vector logarithmically
+{-@ enlarge :: (PrimMonad m, MVector v a) => x: (v (PrimState m) a) -> (m {v:(v (PrimState m) a) | (2 * (mvLen x)) <= (mvLen v)}) @-}
+
 enlarge :: (PrimMonad m, MVector v a)
                 => v (PrimState m) a -> m (v (PrimState m) a)
 {-# INLINE enlarge #-}
@@ -576,6 +606,8 @@ enlargeFront v = do
 
 -- | Grow a vector by the given number of elements. The number must be
 -- positive but this is not checked.
+{-@ unsafeGrow :: (PrimMonad m, MVector v a) => x: (v (PrimState m) a) -> n:Nat -> (m {v:(v (PrimState m) a) | (SzPlus v x n)})  @-}
+
 unsafeGrow :: (PrimMonad m, MVector v a)
                         => v (PrimState m) a -> Int -> m (v (PrimState m) a)
 {-# INLINE unsafeGrow #-}
@@ -596,7 +628,7 @@ unsafeGrowFront v by = ((Ck.checkLength "Data/Vector/Generic/Mutable.hs" 568) Ck
 -- ------------------------
 
 -- | Reset all elements of the vector to some undefined value, clearing all
--- references to external objects. This is usually a noop for unboxed vectors. 
+-- references to external objects. This is usually a noop for unboxed vectors.
 clear :: (PrimMonad m, MVector v a) => v (PrimState m) a -> m ()
 {-# INLINE clear #-}
 clear = basicClear
@@ -686,7 +718,7 @@ copy dst src = ((Ck.check "Data/Vector/Generic/Mutable.hs" 661) Ck.Bounds) "copy
 
 -- | Move the contents of a vector. The two vectors must have the same
 -- length.
--- 
+--
 -- If the vectors do not overlap, then this is equivalent to 'copy'.
 -- Otherwise, the copying is performed as if the source vector were
 -- copied to a temporary vector and then the temporary vector was copied
@@ -712,7 +744,7 @@ unsafeCopy dst src = ((Ck.check "Data/Vector/Generic/Mutable.hs" 687) Ck.Unsafe)
 
 -- | Move the contents of a vector. The two vectors must have the same
 -- length, but this is not checked.
--- 
+--
 -- If the vectors do not overlap, then this is equivalent to 'unsafeCopy'.
 -- Otherwise, the copying is performed as if the source vector were
 -- copied to a temporary vector and then the temporary vector was copied
@@ -838,7 +870,7 @@ unstablePartitionMax f s n
             | otherwise = do
                             unsafeWrite v (j-1) x
                             return (i, j-1)
-                                
+
       (i,j) <- Stream.foldM' put (0, n) s
       return (unsafeSlice 0 i v, unsafeSlice j (n-j) v)
 
@@ -867,8 +899,8 @@ partitionMax f s n
             | otherwise = let j' = j-1 in
                           do
                             unsafeWrite v j' x
-                            return (i,j') 
-                            
+                            return (i,j')
+
       (i,j) <- Stream.foldM' put (0,n) s
       ((Ck.check "Data/Vector/Generic/Mutable.hs" 853) Ck.Internal) "partitionMax" "invalid indices" (i <= j)
         $ return ()
@@ -901,5 +933,3 @@ partitionUnknown f s
       | otherwise = do
                       v2' <- unsafeAppend1 v2 i2 x
                       return (v1, i1, v2', i2+1)
-
-

@@ -12,3 +12,17 @@ go xs (w:ws) (z:zs) | w == z    = z : go xs xs zs
 go xs []     (z:zs)             = go xs xs zs
 go xs ws     []                 = []
 
+
+
+
+{-@ foo :: x:Int -> {v:Int | v = x+3 } @-}
+foo :: Int -> Int
+foo x = x + 3
+
+{-@ bar :: [Nat] -> [{v:Nat | v >= 3}] @-}
+bar :: [Int] -> [Int]
+bar = map foo
+
+{-@ enlarge :: x:[a] -> {v:[a] | (2 * (len x)) <= (len v)} @-}
+enlarge :: [a] -> [a]
+enlarge = undefined

@@ -1,5 +1,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-@ LIQUID "--no-termination" @-}
+
 module Class () where
 
 import Language.Haskell.Liquid.Prelude
