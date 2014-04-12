@@ -107,25 +107,32 @@ import qualified Data.Vector.Internal.Check as Ck
 --   * 'basicUnsafeWrite'
 --
 
+{-@ qualif Enlarge(v:a, x:a): 2 * (mvLen x) <= (mvLen v)      @-}
+{-@ qualif GrowBy(v:a, x:a, n:Int): (mvLen v) = (mvLen x) + n @-}
+{-@ qualif Size(v:a, n:Int): (mvLen v) = n                    @-}
+{-@ qualif Size(v:a, n:Int, m:Int): (mvLen v) = n + m         @-}
+
 {-@ class measure mvLen :: forall a. a -> Int @-}
 
-{-@ type OkIx X            = {v:Nat | v < (mvLen X)} @-}
-{-@ predicate SzPlus V X N = (mvLen V) = (mvLen X) + N @-}
+
+{-@ type Pos               = {v:Int | 0 < v }            @-}
+{-@ type OkIx X            = {v:Nat | v < (mvLen X)}     @-}
+{-@ predicate SzPlus V X N = (mvLen V) = (mvLen X) + N   @-}
 
 {-@
 class MVector v a where
   basicLength          :: forall s. x:(v s a) -> {v:Nat | v = (mvLen x)}
-  basicUnsafeSlice     :: forall s. Int -> Int -> (v s a) -> (v s a)
+  basicUnsafeSlice     :: forall s. i:Nat -> n:Nat -> {v: (v s a) | i + n <= (mvLen v)} -> {v: (v s a) | (mvLen v) = n}
   basicOverlaps        :: forall s. (v s a) -> (v s a) -> Bool
-  basicUnsafeNew       :: forall m. PrimMonad m => Int -> (m (v (PrimState m) a))
+  basicUnsafeNew       :: forall m. PrimMonad m => n:Nat -> (m {x:(v (PrimState m) a) | (mvLen x) = n})
   basicUnsafeReplicate :: forall m. PrimMonad m => Int -> a -> (m (v (PrimState m) a))
   basicUnsafeRead      :: forall m. PrimMonad m => x:(v (PrimState m) a) -> (OkIx x) -> (m a)
   basicUnsafeWrite     :: forall m. PrimMonad m => x:(v (PrimState m) a) -> (OkIx x) -> a -> (m ())
   basicClear           :: forall m. PrimMonad m => (v (PrimState m) a) -> (m ())
   basicSet             :: forall m. PrimMonad m => (v (PrimState m) a) -> a -> (m ())
-  basicUnsafeCopy      :: forall m. PrimMonad m => (v (PrimState m) a) -> (v (PrimState m) a) -> (m ())
+  basicUnsafeCopy      :: forall m. PrimMonad m => dst:(v (PrimState m) a) -> {src:(v (PrimState m) a) | (mvLen src) = (mvLen dst)} -> (m ())
   basicUnsafeMove      :: forall m. PrimMonad m => (v (PrimState m) a)  -> (v (PrimState m) a) -> (m ())
-  basicUnsafeGrow      :: forall m. PrimMonad m => x:(v (PrimState m) a) -> by:Nat -> (m {v:(v (PrimState m) a) | (mvLen v) = (mvLen x) + by })
+  basicUnsafeGrow      :: forall m. PrimMonad m => x:(v (PrimState m) a) -> by:Nat -> (m {v:(v (PrimState m) a) | (SzPlus v x by)})
 @-}
 
 
@@ -245,7 +252,7 @@ class MVector v a where
 -- ------------------
 
 {-@ unsafeAppend1 :: (PrimMonad m, MVector v a)
-        => x:(v (PrimState m) a) -> {v:Nat | v < 2 * (mvLen x)} -> a -> m (v (PrimState m) a) @-}
+        => x:(v (PrimState m) a) -> {v:Nat | v <= (mvLen x)} -> a -> m (v (PrimState m) a) @-}
 
 unsafeAppend1 :: (PrimMonad m, MVector v a)
         => v (PrimState m) a -> Int -> a -> m (v (PrimState m) a)
@@ -259,10 +266,13 @@ unsafeAppend1 v i x
                      unsafeWrite v i x
                      return v
   | otherwise    = do
-                     v' <- enlarge v
+                     v' <-  enlarge v
                      ((Ck.checkIndex "Data/Vector/Generic/Mutable.hs" 217) Ck.Internal) "unsafeAppend1" i (length v')
                        $ unsafeWrite v' i x
                      return v'
+
+{- unsafePrepend1 :: (PrimMonad m, MVector v a)
+        => x:(v (PrimState m) a) -> {v:Nat | v < 2 * (mvLen x)} -> a -> m (v (PrimState m) a) @-}
 
 unsafePrepend1 :: (PrimMonad m, MVector v a)
         => v (PrimState m) a -> Int -> a -> m (v (PrimState m) a, Int)
@@ -543,6 +553,7 @@ new n = ((Ck.checkLength "Data/Vector/Generic/Mutable.hs" 494) Ck.Bounds) "new" 
       $ unsafeNew n
 
 -- | Create a mutable vector of the given length. The length is not checked.
+{-@ unsafeNew :: (PrimMonad m, MVector v a) => n:Nat -> (m {x: (v (PrimState m) a) | (mvLen x) = n}) @-}
 unsafeNew :: (PrimMonad m, MVector v a) => Int -> m (v (PrimState m) a)
 {-# INLINE unsafeNew #-}
 unsafeNew n = ((Ck.checkLength "Data/Vector/Generic/Mutable.hs" 500) Ck.Unsafe) "unsafeNew" n
@@ -585,16 +596,19 @@ growFront :: (PrimMonad m, MVector v a)
 growFront v by = ((Ck.checkLength "Data/Vector/Generic/Mutable.hs" 537) Ck.Bounds) "growFront" by
                $ unsafeGrowFront v by
 
-enlarge_delta v = max (length v) 1
+{-@ enlarge_delta :: (MVector v a) => x:(v s a) -> {v:Pos | (mvLen x) <= v} @-}
+enlarge_delta v =  max (length v)  1
 
 -- | Grow a vector logarithmically
-{-@ enlarge :: (PrimMonad m, MVector v a) => x: (v (PrimState m) a) -> (m {v:(v (PrimState m) a) | (2 * (mvLen x)) <= (mvLen v)}) @-}
+{-@ enlarge :: (PrimMonad m, MVector v a) => x: (v (PrimState m) a) -> (m {v:(v (PrimState m) a) | (mvLen x) < (mvLen v)}) @-}
 
 enlarge :: (PrimMonad m, MVector v a)
                 => v (PrimState m) a -> m (v (PrimState m) a)
 {-# INLINE enlarge #-}
-enlarge v = unsafeGrow v (enlarge_delta v)
+enlarge v = unsafeGrow   v  (enlarge_delta v)
 
+
+{-@ enlargeFront :: (PrimMonad m, MVector v a) => x: (v (PrimState m) a) -> (m ({v:(v (PrimState m) a) | (mvLen x) < (mvLen v)}, Pos)) @-}
 enlargeFront :: (PrimMonad m, MVector v a)
                 => v (PrimState m) a -> m (v (PrimState m) a, Int)
 {-# INLINE enlargeFront #-}
@@ -611,18 +625,27 @@ enlargeFront v = do
 unsafeGrow :: (PrimMonad m, MVector v a)
                         => v (PrimState m) a -> Int -> m (v (PrimState m) a)
 {-# INLINE unsafeGrow #-}
-unsafeGrow v n = ((Ck.checkLength "Data/Vector/Generic/Mutable.hs" 562) Ck.Unsafe) "unsafeGrow" n
-               $ basicUnsafeGrow v n
+unsafeGrow v n =  ((Ck.checkLength "Data/Vector/Generic/Mutable.hs" 562) Ck.Unsafe) "unsafeGrow" n
+                  $ basicUnsafeGrow v n
 
+{-@ unsafeGrowFront :: (PrimMonad m, MVector v a)
+                        => x:(v (PrimState m) a) -> n:Nat -> (m {v:(v (PrimState m) a) | (SzPlus v x n)}) @-}
 unsafeGrowFront :: (PrimMonad m, MVector v a)
                         => v (PrimState m) a -> Int -> m (v (PrimState m) a)
 {-# INLINE unsafeGrowFront #-}
 unsafeGrowFront v by = ((Ck.checkLength "Data/Vector/Generic/Mutable.hs" 568) Ck.Unsafe) "unsafeGrowFront" by
                      $ do
-                         let n = length v
-                         v' <- basicUnsafeNew (by+n)
-                         basicUnsafeCopy (basicUnsafeSlice by n v') v
+                         let n  = length v
+                         v' <- basicUnsafeNew (by + n)
+                         basicUnsafeCopy  (basicUnsafeSlice by n v') v
                          return v'
+
+{-@ foozz :: (PrimMonad m, MVector v a)
+                        => x:(v (PrimState m) a) -> (m {v:(v (PrimState m) a) | (mvLen v) = (mvLen x)}) @-}
+foozz :: (PrimMonad m, MVector v a)
+                        => v (PrimState m) a -> m (v (PrimState m) a)
+foozz x = do v  <- basicUnsafeNew (length x )
+             return v
 
 -- Restricting memory usage
 -- ------------------------
@@ -668,6 +691,8 @@ unsafeRead v i = ((Ck.checkIndex "Data/Vector/Generic/Mutable.hs" 615) Ck.Unsafe
                $ basicUnsafeRead v i
 
 -- | Replace the element at the given position. No bounds checks are performed.
+{-@ unsafeWrite :: (PrimMonad m, MVector v a)
+                                => x:(v (PrimState m) a) -> (OkIx x) -> a -> (m ()) @-}
 unsafeWrite :: (PrimMonad m, MVector v a)
                                 => v (PrimState m) a -> Int -> a -> m ()
 {-# INLINE unsafeWrite #-}

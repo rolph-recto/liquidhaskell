@@ -102,7 +102,7 @@ checkError file line kind loc msg
       Internal -> internalError file line loc msg
       _ -> error file line loc msg
 
-{-@ check :: String -> Int -> Checks -> String -> String -> {v:Bool | (Prop v)} -> a -> a @-}
+{-@ check :: String -> Int -> Checks -> String -> String -> {v:Bool | (Prop v)} -> x:a -> {v:a|v=x} @-}
 check :: String -> Int -> Checks -> String -> String -> Bool -> a -> a
 {-# INLINE check #-}
 check file line kind loc msg cond x
@@ -131,6 +131,8 @@ checkLength_msg# :: Int# -> String
 {-# NOINLINE checkLength_msg# #-}
 checkLength_msg# n# = "negative length " ++ show (I# n#)
 
+
+{-@ checkLength :: String -> Int -> Checks -> String -> Nat -> x:a -> {v:a | v = x} @-}
 checkLength :: String -> Int -> Checks -> String -> Int -> a -> a
 {-# INLINE checkLength #-}
 checkLength file line kind loc n x
@@ -145,10 +147,9 @@ checkSlice_msg# :: Int# -> Int# -> Int# -> String
 {-# NOINLINE checkSlice_msg# #-}
 checkSlice_msg# i# m# n# = "invalid slice " ++ show (I# i#, I# m#, I# n#)
 
-{-@ checkSlice :: String -> Int -> Checks -> String -> i:Nat -> m:Nat -> n:{v:Int | i + m <= v} -> a -> a @-}
+{-@ checkSlice :: String -> Int -> Checks -> String -> i:Nat -> m:Nat -> n:{v:Int | i + m <= v} -> x:a -> {v:a | v = x} @-}
 checkSlice :: String -> Int -> Checks -> String -> Int -> Int -> Int -> a -> a
 {-# INLINE checkSlice #-}
 checkSlice file line kind loc i m n x
   = check file line kind loc (checkSlice_msg i m n)
                              (i >= 0 && m >= 0 && i+m <= n) x
-
