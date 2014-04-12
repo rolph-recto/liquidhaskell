@@ -49,202 +49,62 @@ Can we minimize KVars and hence, simplify constraints with exists?
 
 2. eliminate the last two cases using exists-templates
 
-vector-algorithms
------------------
-
-1. array-sum measure needed to discharge liquidAssume in `Radix`
-2. TERMINATION: Intro, AmericanFlag, Heap
-
-[T] Compiling Data.Vector.Algorithms.Common
-real	0m6.654s
-user	0m4.380s
-sys	    0m0.384s
-
-real	0m5.223s
-user	0m3.800s
-sys	0m0.300s
-
-
-[T] Compiling Data.Vector.Algorithms.Radix
-real	0m31.431s
-user	0m23.981s
-sys	0m1.808s
-
-real	0m23.295s
-user	0m18.181s
-sys	0m1.076s
-
-[T] Compiling Data.Vector.Algorithms.Search
-real	0m13.892s
-user	0m9.573s
-sys	0m0.788s
-
-real	0m10.172s
-user	0m6.728s
-sys	0m0.528s
-
-
-[T] Compiling Data.Vector.Algorithms.Optimal
-real	3m36.357s
-user	2m54.143s
-sys	0m11.585s
-
-real	1m38.936s
-user	1m25.177s
-sys	0m4.104s
-
-
-[T] Compiling Data.Vector.Algorithms.Insertion
-real	0m16.949s
-user	0m12.505s
-sys	0m0.832s
-
-real	0m10.168s
-user	0m8.229s
-sys	0m0.476s
-
-[HEREHEREHERE] Compiling Data.Vector.Algorithms.Heap
-real	2m21.595s
-user	1m35.626s
-sys	0m6.924s
-
-real	1m28.699s
-user	1m2.280s
-sys	0m3.976s
-
-
-[T] Compiling Data.Vector.Algorithms.Merge 
-real	0m57.314s
-user	0m44.839s
-sys	0m2.704s
-
-real	0m38.120s
-user	0m31.134s
-sys	0m1.544s
-
-[T] Compiling Data.Vector.Algorithms.AmericanFlag
-real	1m16.639s
-user	0m55.027s
-sys	0m3.644s
-
-real	0m48.419s
-user	0m35.098s
-sys	0m2.660s
-
-[T] Compiling Data.Vector.Algorithms.Intro 
-
-real	0m23.295s
-user	0m18.181s
-sys	0m1.076s
-
-real	0m41.823s
-user	0m30.398s
-sys	0m2.096s
-
-AmericanFlag.hs.cgi
-[LetE : 142, CaseE : 195, LamE : 336, PredInstE : 10, TypeInstE : 301, RecBindE : 45]
-
-Common.hs.cgi
-[LetE : 17, CaseE : 28, LamE : 43, PredInstE : 4, TypeInstE : 50, RecBindE : 5]
-
-Heap.hs.cgi
-[LetE : 237, CaseE : 156, LamE : 327, PredInstE : 40, TypeInstE : 331, RecBindE : 20]
-
-Insertion.hs.cgi
-[LetE : 51, CaseE : 78, LamE : 82, TypeInstE : 61, RecBindE : 10]
-
-Intro.hs.cgi
-[LetE : 112, CaseE : 103, LamE : 142, TypeInstE : 111, RecBindE : 34]
-
-Merge.hs.cgi
-[LetE : 99, CaseE : 192, LamE : 126, PredInstE : 15, TypeInstE : 180, RecBindE : 27]
-
-Optimal.hs.cgi
-[LetE : 456, LamE : 309, TypeInstE : 649]
-
-Radix.hs.cgi
-[LetE : 63, CaseE : 136, LamE : 299, TypeInstE : 123, RecBindE : 20]
-
-Search.hs.cgi
-[LetE : 63, CaseE : 72, LamE : 95, TypeInstE : 82, RecBindE : 15]
-
---------------
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-AmericanFlag.hs.cgi
-[LetE : 328, CaseE : 9, LamE : 336, PredInstE : 10, TypeInstE : 301, RecBindE : 45]
-
-Common.hs.cgi
-[LetE : 45, LamE : 43, PredInstE : 4, TypeInstE : 50, RecBindE : 5]
-
-Heap.hs.cgi
-[LetE : 378, CaseE : 15, LamE : 327, PredInstE : 40, TypeInstE : 331, RecBindE : 20]
-
-Insertion.hs.cgi
-[LetE : 129, LamE : 82, TypeInstE : 61, RecBindE : 10]
-
-Intro.hs.cgi
-[LetE : 209, CaseE : 6, LamE : 142, TypeInstE : 111, RecBindE : 34]
-
-Merge.hs.cgi
-[LetE : 291, LamE : 126, PredInstE : 15, TypeInstE : 180, RecBindE : 27]
-
-Optimal.hs.cgi
-[LetE : 456, LamE : 309, TypeInstE : 649]
-
-Radix.hs.cgi
-[LetE : 199, LamE : 299, TypeInstE : 123, RecBindE : 20]
-
-Search.hs.cgi
-[LetE : 135, LamE : 95, TypeInstE : 82, RecBindE : 15]
-
-
-
 
 vector
 ------
 
+Wordcount for vector
+
+    1476 ./Vector/Fusion/Stream/Monadic.hs
+      87 ./Vector/Fusion/Stream/Size.hs
+     634 ./Vector/Fusion/Stream.hs
+      57 ./Vector/Fusion/Util.hs
+     142 ./Vector/Generic/Base.hs
+     884 ./Vector/Generic/Mutable.hs
+     172 ./Vector/Generic/New.hs
+    2027 ./Vector/Generic.hs
+     163 ./Vector/Internal/Check.hs
+     398 ./Vector/Mutable.hs
+     332 ./Vector/Primitive/Mutable.hs
+    1328 ./Vector/Primitive.hs
+      45 ./Vector/Storable/Internal.hs
+     490 ./Vector/Storable/Mutable.hs
+    1421 ./Vector/Storable.hs
+     389 ./Vector/Unboxed/Base.hs
+     285 ./Vector/Unboxed/Mutable.hs
+    1368 ./Vector/Unboxed.hs
+    1510 ./Vector.hs
+   13208 total
+
+
+
+
+> s -> (a, s)
+
 Dependency order for vector 
 
-[ 1 of 19] Compiling Data.Vector.Storable.Internal
-[ 2 of 19] Compiling Data.Vector.Fusion.Util           
-[ 3 of 19] Compiling Data.Vector.Fusion.Stream.Size     (REVISIT?)
-[ 4 of 19] Compiling Data.Vector.Internal.Check        
+[ 1 of 19]  [45]       Data.Vector.Storable.Internal
+[ 2 of 19]  [57]       Data.Vector.Fusion.Util           
+[ 4 of 19]  [163]      Data.Vector.Internal.Check        
+[ 3 of 19]  [87]       Data.Vector.Fusion.Stream.Size      (SKIP:STREAM?)
+[ 5 of 19]  [1476]    Data.Vector.Fusion.Stream.Monadic   (SKIP:STREAM?) 
+[ 6 of 19]  [634]     Data.Vector.Fusion.Stream           (SKIP:STREAM?)   
 
 HEREHEREHERE
 
-[ 5 of 19] Compiling Data.Vector.Fusion.Stream.Monadic 
-[ 6 of 19] Compiling Data.Vector.Fusion.Stream         
-[ 7 of 19] Compiling Data.Vector.Generic.Mutable       
-[ 8 of 19] Compiling Data.Vector.Generic.Base          
-[ 9 of 19] Compiling Data.Vector.Generic.New           
-[10 of 19] Compiling Data.Vector.Generic               
-[11 of 19] Compiling Data.Vector.Primitive.Mutable     
-[12 of 19] Compiling Data.Vector.Primitive             
-[13 of 19] Compiling Data.Vector.Storable.Mutable      
-[14 of 19] Compiling Data.Vector.Storable              
-[15 of 19] Compiling Data.Vector.Unboxed.Base          
-[16 of 19] Compiling Data.Vector.Unboxed               
-[17 of 19] Compiling Data.Vector.Unboxed.Mutable       
-[18 of 19] Compiling Data.Vector.Mutable               
-[19 of 19] Compiling Data.Vector                       
+[ 7 of 19]  [884]     Data.Vector.Generic.Mutable       
+[ 8 of 19]  [142]     Data.Vector.Generic.Base          
+[ 9 of 19]  [172]     Data.Vector.Generic.New           
+[10 of 19]  [2027]    Data.Vector.Generic               
+[11 of 19]  [332]     Data.Vector.Primitive.Mutable     
+[12 of 19]  [1328]    Data.Vector.Primitive             
+[13 of 19]  [490]     Data.Vector.Storable.Mutable      
+[14 of 19]  [1421]    Data.Vector.Storable              
+[15 of 19]  [389]     Data.Vector.Unboxed.Base          
+[16 of 19]  [1368]    Data.Vector.Unboxed               
+[17 of 19]  [285]     Data.Vector.Unboxed.Mutable       
+[18 of 19]  [398]     Data.Vector.Mutable               
+[19 of 19]  [1510]    Data.Vector                       
 
 hmatrix
 -------
