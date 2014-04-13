@@ -29,7 +29,7 @@ Nil         !! i = undefined
 class Sized s where
   size :: s a -> Int
   emp  :: s a -> Bool
-  emp  = (0 ==) . size 
+  emp  = (0 ==) . size
 
 instance Sized List where
   size = length
@@ -59,7 +59,6 @@ instance Sized [] where
   @-}
 class (Sized s) => Indexable s where
   index :: s a -> Int -> a
-
 
 instance Indexable List where
   index = (!!)

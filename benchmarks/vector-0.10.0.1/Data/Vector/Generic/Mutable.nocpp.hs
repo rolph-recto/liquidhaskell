@@ -11,6 +11,8 @@
 -- Generic interface to mutable vectors
 --
 
+{-@ LIQUID "--shortnames"}
+
 module Data.Vector.Generic.Mutable (
   -- * Class of mutable vector types
   MVector(..),

@@ -1,5 +1,3 @@
-
-
 TODO
 ====
 
@@ -10,7 +8,7 @@ TODO
 
 * hmatrix
 
-* error messages (see issues on github) 
+* error messages (see issues on github)
 
 lazy instantiation
 ------------------
@@ -81,79 +79,79 @@ Wordcount for vector
 
 > s -> (a, s)
 
-Dependency order for vector 
+Dependency order for vector
 
 [ 1 of 19]  [45]      Data.Vector.Storable.Internal
-[ 2 of 19]  [57]      Data.Vector.Fusion.Util           
-[ 4 of 19]  [163]     Data.Vector.Internal.Check        
+[ 2 of 19]  [57]      Data.Vector.Fusion.Util
+[ 4 of 19]  [163]     Data.Vector.Internal.Check
 [ 3 of 19]  [87]      Data.Vector.Fusion.Stream.Size      (SKIP:STREAM?)
-[ 5 of 19]  [1476]    Data.Vector.Fusion.Stream.Monadic   (SKIP:STREAM?) 
-[ 6 of 19]  [634]     Data.Vector.Fusion.Stream           (SKIP:STREAM?)   
+[ 5 of 19]  [1476]    Data.Vector.Fusion.Stream.Monadic   (SKIP:STREAM?)
+[ 6 of 19]  [634]     Data.Vector.Fusion.Stream           (SKIP:STREAM?)
 
 HEREHEREHERE
 
-[ 7 of 19]  [884]     Data.Vector.Generic.Mutable       
-[ 8 of 19]  [142]     Data.Vector.Generic.Base          
-[ 9 of 19]  [172]     Data.Vector.Generic.New           
-[10 of 19]  [2027]    Data.Vector.Generic               
+[ 7 of 19]  [884]     Data.Vector.Generic.Mutable
+[ 8 of 19]  [142]     Data.Vector.Generic.Base
+[ 9 of 19]  [172]     Data.Vector.Generic.New
+[10 of 19]  [2027]    Data.Vector.Generic
 
-[11 of 19]  [332]     Data.Vector.Primitive.Mutable     
-[12 of 19]  [1328]    Data.Vector.Primitive             
-[13 of 19]  [490]     Data.Vector.Storable.Mutable      
-[14 of 19]  [1421]    Data.Vector.Storable              
-[15 of 19]  [389]     Data.Vector.Unboxed.Base          
-[16 of 19]  [1368]    Data.Vector.Unboxed               
-[17 of 19]  [285]     Data.Vector.Unboxed.Mutable       
-[18 of 19]  [398]     Data.Vector.Mutable               
-[19 of 19]  [1510]    Data.Vector                       
+[11 of 19]  [332]     Data.Vector.Primitive.Mutable
+[12 of 19]  [1328]    Data.Vector.Primitive
+[13 of 19]  [490]     Data.Vector.Storable.Mutable
+[14 of 19]  [1421]    Data.Vector.Storable
+[15 of 19]  [389]     Data.Vector.Unboxed.Base
+[16 of 19]  [1368]    Data.Vector.Unboxed
+[17 of 19]  [285]     Data.Vector.Unboxed.Mutable
+[18 of 19]  [398]     Data.Vector.Mutable
+[19 of 19]  [1510]    Data.Vector
 
 
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:237:108-116 
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:252:107-115 
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:276:94-101 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:237:108-116
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:252:107-115
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:276:94-101
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:351:95 ***
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:354:108 **
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:358:103 **
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:368:107-115 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:368:107-115
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:398:96 ***
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:402:106-107 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:402:106-107
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:402:109 **
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:406:99 ***
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:406:107 **
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:417:105-107 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:417:105-107
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:417:110 **
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:442:88 ***
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:442:90 ***
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:442:93-100 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:442:93-100
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:481:100 **
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:481:102 **
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:481:105-112 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:481:105-112
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:514:81 ***
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:520:93 ***
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:551:86-87 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:551:86-87
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:582:97 ***
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:610:84 ***
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:610:87-94 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:610:87-94
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:616:88 ***
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:616:91-98 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:616:91-98
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:622:86 ***
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:622:89-96 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:622:89-96
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:623:86 ***
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:623:89-96 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:623:89-96
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:635:96 ***
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:635:99-106 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:635:99-106
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:642:100 **
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:642:103-110 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:642:103-110
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:649:98 ***
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:649:101-108 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:649:101-108
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:650:98 ***
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:650:101-108 
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:682:44-67 
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:684:44-67 
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:698:44-67 
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:708:43-66 
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:710:43-66 
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:725:43-66 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:650:101-108
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:682:44-67
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:684:44-67
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:698:44-67
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:708:43-66
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:710:43-66
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:725:43-66
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:738:97 ***
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:738:99 ***
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:750:93 ***
@@ -161,16 +159,16 @@ HEREHEREHERE
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:762:99 ***
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:774:90 ***
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:774:92 ***
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:785:48-52 
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:801:41-43 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:785:48-52
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:801:41-43
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:802:41 ***
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:814:43-45 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:814:43-45
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:815:41 ***
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:831:103 **
 **** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:858:103 **
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:873:103-108 
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:888:99-108 
-**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:889:103-112 
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:873:103-108
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:888:99-108
+**** UNSAFE:  Liquid Type Error: Data/Vector/Generic/Mutable.nocpp.hs:889:103-112
 
 
 
@@ -180,12 +178,12 @@ hmatrix
 Dependency order for hmatrix
 
 NA [ 1 of 36] Data.Packed.Internal.Signatures
-TY [ 2 of 36] Data.Packed.Internal.Common 
+TY [ 2 of 36] Data.Packed.Internal.Common
   > see tests/pos/transpose.hs
 
-[ 3 of 36] Data.Packed.Internal.Vector 
-[ 4 of 36] Numeric.GSL.Vector 
-[ 5 of 36] Data.Packed.Internal.Matrix 
+[ 3 of 36] Data.Packed.Internal.Vector
+[ 4 of 36] Numeric.GSL.Vector
+[ 5 of 36] Data.Packed.Internal.Matrix
 [ 6 of 36] Numeric.Conversion
 [ 7 of 36] Data.Packed.Internal
 [ 8 of 36] Data.Packed.ST
@@ -200,12 +198,12 @@ TY [ 2 of 36] Data.Packed.Internal.Common
 [17 of 36] Data.Packed.Matrix
 [18 of 36] Numeric.GSL.Minimization
 [19 of 36] Numeric.GSL.Root
-[20 of 36] Numeric.LinearAlgebra.LAPACK 
+[20 of 36] Numeric.LinearAlgebra.LAPACK
 [21 of 36] Data.Packed.Vector
 [22 of 36] Data.Packed
 [23 of 36] Numeric.ContainerBoot
 [24 of 36] Numeric.Chain
-[25 of 36] Numeric.LinearAlgebra.Algorithms 
+[25 of 36] Numeric.LinearAlgebra.Algorithms
 [26 of 36] Numeric.IO
 [27 of 36] Data.Packed.Random
 [28 of 36] Numeric.Container
@@ -214,39 +212,39 @@ TY [ 2 of 36] Data.Packed.Internal.Common
 [31 of 36] Numeric.LinearAlgebra
 [32 of 36] Numeric.GSL.Fitting
 [33 of 36] Numeric.GSL
-[34 of 36] Numeric.LinearAlgebra.Util.Convolution 
-[35 of 36] Numeric.LinearAlgebra.Util 
+[34 of 36] Numeric.LinearAlgebra.Util.Convolution
+[35 of 36] Numeric.LinearAlgebra.Util
 [36 of 36] Graphics.Plot
 
 
 Embed
 =====
 
-see 
+see
 
     tests/pos/ptr.hs
     tests/pos/ptr2.hs
 
-run with 
+run with
 
-    liquid -i include/ -i benchmarks/bytestring-0.9.2.1/ tests/pos/ptr2.hs 
+    liquid -i include/ -i benchmarks/bytestring-0.9.2.1/ tests/pos/ptr2.hs
 
 GET THIS TO WORK WITHOUT THE "base" measure and realated theorem,
 but with raw pointer arithmetic. I.e. give plusPtr the right signature:
   (v = base + off)
 Can do so now, by:
 
-  embed Ptr as int 
+  embed Ptr as int
 
 but the problem is that then it throws off all qualifier definitions like
- 
+
   qualif EqPLen(v: ForeignPtr a, x: Ptr a): (fplen v) = (plen x)
-  qualif EqPLen(v: Ptr a, x: ForeignPtr a): (plen v) = (fplen x) 
+  qualif EqPLen(v: Ptr a, x: ForeignPtr a): (plen v) = (fplen x)
 
 because there is no such thing as Ptr a by the time we get to Fixpoint. yuck.
 Meaning we have to rewrite the above to the rather lame:
 
-  qualif EqPLenPOLY2(v: a, x: b): (plen v) = (fplen x)           
+  qualif EqPLenPOLY2(v: a, x: b): (plen v) = (fplen x)
 
 
 
@@ -280,13 +278,13 @@ Measures
 --------
 
 [DONE] Lists I-Sets  ("" but with Sets as the measure)
-- LambdaEval	
+- LambdaEval
 
 Abstract Refinements
 --------------------
 
 [DONE] ParaPoly/Ty  
-[DONE] Sorting      <--------------- STOP 
+[DONE] Sorting      <--------------- STOP
 
 - Maps I        (BST property, add, delete)
 - Map II        (Data.Map with elements etc.)
@@ -332,7 +330,7 @@ Benchmarks
         - key-set-properties
         - key-dependence
         - balance (NO)
-        
+
 -   vector-algorithms "vector bounds checking"
       - e.g. "unsafeSlice"
       - maybe only specify types for Vector?
@@ -368,13 +366,13 @@ Paper #2
 -> Haskell + DB / Yesod / Snap
 -> NDM/catch benchmarks (with refinements)
 
-Known Bugs 
+Known Bugs
 ==========
 
 -> tests/todo/fft.hs
 
 -> binsearch crashes because you have chains like:
-        
+
         x1 = 2
         x2 = x1
         x3 = x2
@@ -399,20 +397,20 @@ Theorems (from Wouter Swierstra's Coq Development)
 
     - Invariant: NoDuplicates
 
-    - prop_empty_I      : new  : ? -> {v | invariant(v)} 
-    - prop_view_I       : view : ? -> {v | invariant(v)} 
+    - prop_empty_I      : new  : ? -> {v | invariant(v)}
+    - prop_view_I       : view : ? -> {v | invariant(v)}
     - prop_greedyView_I : view : ? -> {v | invariant(v)}
     - prop_focusUp_I
     - prop_focusMaster_I
-    - prop_focusDown_I 
-    - prop_focus_I 
+    - prop_focusDown_I
+    - prop_focus_I
     - prop_insertUp_I
     - prop_delete_I
     - prop_swap_master_I
     - prop_swap_left_I  
     - prop_swap_right_I
-    - prop_shift_I 
-    - prop_shift_win_I 
+    - prop_shift_I
+    - prop_shift_win_I
 
 [prop_FOO_I] check that various functions outputs satisfy "invariant"
 
@@ -424,22 +422,22 @@ Theorems (from Wouter Swierstra's Coq Development)
     > Theorem prop_focusUp_I (l a sd : Set) (n : nat) (s : StackSet.stackSet nat l a sd) :
     > Theorem prop_focusDown_I (l a sd : Set) (n : nat) (s : StackSet.stackSet nat l a sd) :
     > Theorem prop_focusMaster_I (l a sd : Set) (n : nat) (s : StackSet.stackSet nat l a sd) :
-    > Theorem prop_empty_I (m : l) (wids : {wids : list i | wids <> nil}) 
-    > Theorem prop_empty (m : l) (wids : {wids : list i | wids <> nil}) 
+    > Theorem prop_empty_I (m : l) (wids : {wids : list i | wids <> nil})
+    > Theorem prop_empty (m : l) (wids : {wids : list i | wids <> nil})
     > Theorem prop_differentiate (xs : list a) :
 
-[prop_FOO_local] check that various functions preserve a [hidden_spaces] MEASURE 
+[prop_FOO_local] check that various functions preserve a [hidden_spaces] MEASURE
 
     FOO :: x: StackSet -> {v: StackSet | hidden_spaces(v) = hidden_spaces(x) }
 
     > Theorem prop_focus_down_local (s : stackSet i l a sd) :
-    > Theorem prop_focus_up_local (s : stackSet i l a sd) : 
+    > Theorem prop_focus_up_local (s : stackSet i l a sd) :
     > Theorem prop_focus_master_local (s : stackSet i l a sd) :
     > Theorem prop_delete_local (s : stackSet i l a sd) (eq_dec : forall x y, {x = y} + {x <> y}) :
-    > Theorem prop_swap_master_local (s : stackSet i l a sd) : 
-    > Theorem prop_swap_left_local (s : stackSet i l a sd) : 
-    > Theorem prop_swap_right_local (s : stackSet i l a sd) : 
-    > Theorem prop_shift_master_local (s : stackSet i l a sd) : 
+    > Theorem prop_swap_master_local (s : stackSet i l a sd) :
+    > Theorem prop_swap_left_local (s : stackSet i l a sd) :
+    > Theorem prop_swap_right_local (s : stackSet i l a sd) :
+    > Theorem prop_shift_master_local (s : stackSet i l a sd) :
     > Theorem prop_insert_local (x : stackSet i l a sd) (eq_dec : forall x y, {x = y} + {x <> y}) :
 
 
@@ -454,33 +452,33 @@ BAD: these check that: forall x: foo (bar x) == x
     > Theorem prop_swap_right_focus (x : StackSet.stackSet i l a sd) :
 
 
-BAD? forall x. swapMaster (swapMaster x) == x 
-    > Theorem prop_swap_master_idempotent (x : StackSet.stackSet i l a sd) : 
-    
+BAD? forall x. swapMaster (swapMaster x) == x
+    > Theorem prop_swap_master_idempotent (x : StackSet.stackSet i l a sd) :
+
 BAD? forall x. view i (view i x) == (view i x)
     > Theorem prop_focusMaster_idem (x : StackSet.stackSet i l a sd) :
 
     NO. Prove: view :: i -> x -> {v: focus(v) = i}
-                    :: i -> x -> {v: focus(x) = i => x = v } 
-        
+                    :: i -> x -> {v: focus(x) = i => x = v }
+
     To prove foo_IDEMPOTENT, find a property P such that:
 
                 foo :: x:t -> {v:t | P(v)}
                 foo :: x:t -> {v:t | P(x) => v = x }
 
-SETS: 
+SETS:
     > Theorem prop_screens (s : stackSet i l a sd) :
 
 
 TRIV/HARD: (function definition)
     > [TRIV]  Theorem prop_screens_work (x : stackSet i l a sd) :
-    > Theorem prop_mapWorkspaceId (x : stackSet i l a sd) : 
+    > Theorem prop_mapWorkspaceId (x : stackSet i l a sd) :
     > Theorem prop_mapLayoutId (s : stackSet i l a sd) :
     > Theorem prop_mapLayoutInverse (s : stackSet i nat a sd) :
     > Theorem prop_mapWorkspaceInverse (s : stackSet nat l a sd) :
 
 Theorem prop_lookup_current (x : stackSet i l a sd) :
-Theorem prop_lookup_visible (x : stackSet i l a sd) : 
+Theorem prop_lookup_visible (x : stackSet i l a sd) :
 
 
 Random Links
@@ -543,15 +541,15 @@ http://www.reddit.com/r/haskell/comments/1okcmh/odd_space_leak_when_using_parsec
 the poster probably feels silly, but I have, on several occasions, hit
 this issue with parsec. Wonder whether our termination checker could be used... hmm...
 
-Sure! You just have to give 
+Sure! You just have to give
 
 type GenParser tok st = Parsec [tok] st
 
-a size, I guess (len [tok]). The hard part will be to prove it when the size is actually decreasing... 
+a size, I guess (len [tok]). The hard part will be to prove it when the size is actually decreasing...
 
 Hmm... Surely we need to track somehow the "effect" of executing a single parsing action.
 
-For example, 
+For example,
 
     chars :: Char -> Parser [Char]
     chars c = do z  <- char c
@@ -562,7 +560,7 @@ What is the machinery by which the "recursive call" is run on a "smaller" GenPar
 Does it help if we remove the `do` block?
 
     chars :: Char -> Parser [Char]
-    chars c = char c  >>= \z  ->   
+    chars c = char c  >>= \z  ->
               chars c >>= \zs ->
               return (z:zs)
 
@@ -578,36 +576,36 @@ You need a measure
 
 which describes (a lower bound) on the number of tokens consumed by the action `Parser a`.
 
-Now, you give 
+Now, you give
 
    return :: a -> {v: Parser a | (eats v) = 0}
 
 and most importantly,
 
-   (>>=)  :: forall <Q :: Parser b -> Prop> 
-             x: Parser a 
-          -> f:{v: a -> Parser b <Q> | (rec v) => (eats x) > 0} 
+   (>>=)  :: forall <Q :: Parser b -> Prop>
+             x: Parser a
+          -> f:{v: a -> Parser b <Q> | (rec v) => (eats x) > 0}
           -> exists z:Parser b <Q>. {v:Parser b | (eats v) = (eats z) + (eats x)}
 
-(Of course you have to give appropriate signatures for the parsec combinators 
+(Of course you have to give appropriate signatures for the parsec combinators
 -- perhaps one can even PROVE the `eats` measure. However, note that
 
    type Parser a = [Char] -> (a, [Char])
 
 roughly speaking, and here `eats` is actually the DIFFERENCE of the lengths of
-the input and output [Char] ... so I'm not sure how exactly we would reason about 
-the IMPLEMENTATION of `eats` but certainly we should be able to USE it in clients 
+the input and output [Char] ... so I'm not sure how exactly we would reason about
+the IMPLEMENTATION of `eats` but certainly we should be able to USE it in clients
 of parsec.
- 
+
 Note that you need a refinement ON the function type, the idea being that:
 
 1. the BODY of a recursive function is checked in the termination-strengthened
 environment that constrains the function to satisfy the predicate `rec`
 
-2. whenever you use >>= on a recursive function, the PRECEDING action must have 
+2. whenever you use >>= on a recursive function, the PRECEDING action must have
 consumed some tokens.
 
-3. the number of tokens consumed by the combined action equals the sum of the two 
+3. the number of tokens consumed by the combined action equals the sum of the two
 actions (all the business about exists z and Q is to allow us to depend on the output
 value of `f` (c.f. tests/pos/cont1.hs)
 
@@ -615,8 +613,8 @@ value of `f` (c.f. tests/pos/cont1.hs)
 PROJECT: HTT style ST/IO reasoning with Abstract Refinements
 ------------------------------------------------------------
 
-Can we use abstract refinements to do "stateful reasoning", 
-e.g. about stuff in `IO` ? For example, to read files, this 
+Can we use abstract refinements to do "stateful reasoning",
+e.g. about stuff in `IO` ? For example, to read files, this
 is the API:
 
     open  :: FilePath -> IO Handle
@@ -624,7 +622,7 @@ is the API:
     write :: Handle -> String -> IO ()
     close :: Handle -> IO ()
 
-The catch is that `read` and `write` require the `Handle` to be 
+The catch is that `read` and `write` require the `Handle` to be
 in an "open" state (which is the state of the `Handle` returned by `open`)
 while `close` presumably puts the `Handle` in a "closed" state.
 
@@ -663,12 +661,12 @@ Now, it should be possible to give types like:
 
 
 
-My question is how do you make Q from a post-condition (Q :: a -> Word -> Word -> Prop) 
+My question is how do you make Q from a post-condition (Q :: a -> Word -> Word -> Prop)
 to a pre-condition.
 I guess you need to apply a value x :: a and a w :: Word to write (a -> IO b<Q x w, R>).
 
 I think the problem is that the "correct" values x and w are not "in scope"
- 
+
 
 So assume
 data IO a <P :: Word -> Prop, Q: a -> Word -> Word -> Prop> = IO (x:Word<P> -> (y:a, Word<Q y x>))
@@ -686,17 +684,17 @@ IO m :: IO a <P. Q>
 you can assume
 s:: Word <P>
 
-so 
+so
 m s :: (y:a, Word <Q y s>)
 
 k a :: IO b <Q x w, R>
 
 uniIO (k a) :: z:Word <Q x w> -> (xx:b, Word <R xx z>)
 
-and we want 
-(uniIO k a) s :: (xx:b , Word <R xx s>) 
+and we want
+(uniIO k a) s :: (xx:b , Word <R xx s>)
 
-so basically we need 
+so basically we need
 P  => Q x w
 to be able to make the final application
 
@@ -731,7 +729,7 @@ Q: How to encode *heterogenous* maps like:
 
    and write
 
-    showName d1 
+    showName d1
     showName d2
 
    or even
@@ -745,15 +743,15 @@ Step 1: Encode dictionary as vanilla Haskell type
     put   :: (Dynamic a) => String -> a -> Dict -> Dict
     get   :: (Dynamic a) => String -> Dict -> Dict
 
-Step 2: **Create** dictionaries 
+Step 2: **Create** dictionaries
 
     d1 = put "name"   "RJ"
        $ put "age"    36
-       $ put "alive"  True 
+       $ put "alive"  True
        $ empty
-       
+
     d1 = put "name"   "Jupiter"
-       $ put "pos"    5 
+       $ put "pos"    5
        $ empty
 
 Step 3: **Lookup** dictionaries
@@ -762,9 +760,9 @@ Step 3: **Lookup** dictionaries
     showName d = get "name" d
 
     -- TODO: how to support
-    showName :: Dict -> Dict 
-    incrAge d = put "age" (n + 1) d 
-      where 
+    showName :: Dict -> Dict
+    incrAge d = put "age" (n + 1) d
+      where
             n = get "age" d
 
     -- TODO: how to support
@@ -780,9 +778,9 @@ inside logic, so you can write measures like
 
     measure TypeOf :: a -> Type
 
-and use it to define refinements like 
+and use it to define refinements like
 
-    (TypeOf v = Int) 
+    (TypeOf v = Int)
 
 (TODO: too bad we don't have relational measures... or multi-param measures ... yet!)
 
@@ -796,31 +794,31 @@ Step 5: Refined Signatures for `Dict` API
 
     put :: (Dynamic a) => key:String
                        -> {value:a | (Q key value)}
-                       -> d:Dict <Q /\ {\k _ -> k /= key}> 
+                       -> d:Dict <Q /\ {\k _ -> k /= key}>
                        -> Dict <Q /\ {\k v -> (Fld k v key a)}>
-                       
+
     get :: (Dynamic a) => key:String
-                       -> d:Dict <{\k v -> (Fld k v key a)}> 
+                       -> d:Dict <{\k v -> (Fld k v key a)}>
                        -> a
 
 Step 6: Now, for example, we should be able to type our dictionaries as
 
     {-@ d1 :: Dict<Q1> @-}
 
-where 
+where
 
-    Q1 == \k v -> Fld k v "name"  String /\ 
-                  Fld k v "age"   Int    /\ 
-                  Fld k v "alive" Bool   
+    Q1 == \k v -> Fld k v "name"  String /\
+                  Fld k v "age"   Int    /\
+                  Fld k v "alive" Bool
 
-and 
+and
 
     {-@ d2 :: Dict<Q2> @-}
 
 where
 
-    Q2 == \k v -> Fld k v "name"  String /\ 
-                  Fld k v "pos"   Int    /\ 
+    Q2 == \k v -> Fld k v "name"  String /\
+                  Fld k v "pos"   Int    /\
 
 **TODO:**
 
@@ -828,7 +826,7 @@ where
   + needed for `TypeOf` measure, equality checks
   + requires doing type-substitutions inside refinements
 
-+ add support for 
++ add support for
   + update [isn't that just `put`?]
   + concat
 
@@ -836,6 +834,3 @@ where
   - Fold   (over all fields, eg. to serialize into a String)
   - Map?   (transform all fields to serialize) toDB?
   - Filter (takes a predicate that should only read valid columns of the record)
-
-
-
