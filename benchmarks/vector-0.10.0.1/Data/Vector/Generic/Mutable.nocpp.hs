@@ -57,7 +57,7 @@ module Data.Vector.Generic.Mutable (
   unstablePartition, unstablePartitionStream, partitionStream
 ) where
 
-import            Language.Haskell.Liquid.Prelude (liquidAssert)
+import            Language.Haskell.Liquid.Prelude (liquidAssert, liquidAssume)
 import qualified Data.Vector.Fusion.Stream      as Stream
 import           Data.Vector.Fusion.Stream      ( Stream, MStream )
 import qualified Data.Vector.Fusion.Stream.Monadic as MStream
@@ -107,18 +107,22 @@ import qualified Data.Vector.Internal.Check as Ck
 --
 --   * 'basicUnsafeWrite'
 --
+{-@ qualif Enlarge(v:Int, x:a): 0  = (mvLen x)           @-}
+{-@ qualif Enlarge(v:Int, x:a): v <= (mvLen x)           @-}
+{-@ qualif Enlarge(v:Int, x:a): v < (mvLen x)           @-}
+{-@ qualif Enlarge(v:a, x:b): (mvLen x) = (mvLen v)           @-}
 
-{-@ qualif Enlarge(v:a, x:a): 2 * (mvLen x) <= (mvLen v)      @-}
+{-@ qualif Enlarge(v:a, x:a): (mvLen x) < (mvLen v)           @-}
 {-@ qualif GrowBy(v:a, x:a, n:Int): (mvLen v) = (mvLen x) + n @-}
 {-@ qualif Size(v:a, n:Int): (mvLen v) = n                    @-}
 {-@ qualif Size(v:a, n:Int, m:Int): (mvLen v) = n + m         @-}
 {-@ qualif PVec(v:a): 0 <= (mvLen v)                          @-}
+{-@ qualif UnsafeAppend1(v:a, i:Int): i < (mvLen v)           @-}
 
 {-@ class measure mvLen :: forall a. a -> Int @-}
 
 
 {-@ type PVec v m a        = {x: (v (PrimState m) a) | 0 <= (mvLen x)}            @-}
-{-- type VecAndIx a K      = (a, Pos) <{\vec v -> (0 < v && v <= (mvLen vec))}>   @-}
 {-@ type VecAndIx a K      = (a, Int) <{\vec v -> (ValidIx (v-K) vec)}>   @-}
 
 {-@ type Pos               = {v:Int | 0 < v }            @-}
@@ -259,7 +263,7 @@ class MVector v a where
 -- ------------------
 
 {-@ unsafeAppend1 :: (PrimMonad m, MVector v a)
-        => x:(v (PrimState m) a) -> {v:Nat | v <= (mvLen x)} -> a -> m (v (PrimState m) a) @-}
+        => x:(PVec v m a) -> i:{Nat | i <= (mvLen x)} -> a -> m {v: (PVec v m a) | i < (mvLen v)} @-}
 
 unsafeAppend1 :: (PrimMonad m, MVector v a)
         => v (PrimState m) a -> Int -> a -> m (v (PrimState m) a)
@@ -270,11 +274,11 @@ unsafeAppend1 :: (PrimMonad m, MVector v a)
     -- unboxed.
 unsafeAppend1 v i x
   | i < length v = do
-                     unsafeWrite v i x
+                     unsafeWrite v i  x
                      return v
   | otherwise    = do
                      v' <-  enlarge v
-                     ((Ck.checkIndex "Data/Vector/Generic/Mutable.hs" 217) Ck.Internal) "unsafeAppend1" i (length v')
+                     ((Ck.checkIndex "Data/Vector/Generic/Mutable.hs" 217) Ck.Internal)  "unsafeAppend1" i (length v')
                        $ unsafeWrite v' i x
                      return v'
 
@@ -308,6 +312,8 @@ mstream v = v `seq` n `seq` (MStream.unfoldrM get 0 `MStream.sized` Exact n)
                            return $ Just (x, i+1)
           | otherwise = return $ Nothing
 
+{-@ fill :: (PrimMonad m, MVector v a)
+              => (PVec v m a) -> MStream m a -> m (PVec v m a) @-}
 fill :: (PrimMonad m, MVector v a)
            => v (PrimState m) a -> MStream m a -> m (v (PrimState m) a)
 {-# INLINE fill #-}
@@ -316,10 +322,11 @@ fill v s = v `seq` do
                      return $ unsafeSlice 0 n' v
   where
     {-# INLINE [0] put #-}
-    put i x = do
-                ((Ck.checkIndex "Data/Vector/Generic/Mutable.hs" 256) Ck.Internal) "fill" i (length v)
+    put i' x = do
+                ((Ck.checkIndex "Data/Vector/Generic/Mutable.hs" 256) Ck.Internal)  "fill" i (length v)
                   $ unsafeWrite v i x
                 return (i+1)
+               where i  = liquidAssume (i' < length v) i' -- LIQUID: stream size
 
 transform :: (PrimMonad m, MVector v a)
   => (MStream m a -> MStream m a) -> v (PrimState m) a -> m (v (PrimState m) a)
@@ -339,21 +346,26 @@ mstreamR v = v `seq` n `seq` (MStream.unfoldrM get n `MStream.sized` Exact n)
       where
         j = i-1
 
+{-@ fillR :: (PrimMonad m, MVector v a)
+            => (PVec v m a) -> MStream m a -> m (PVec v m a) @-}
+
 fillR :: (PrimMonad m, MVector v a)
            => v (PrimState m) a -> MStream m a -> m (v (PrimState m) a)
 {-# INLINE fillR #-}
 fillR v s = v `seq` do
                       i <- MStream.foldM put n s
-                      return $ unsafeSlice i (n-i) v
+                      return $ unsafeSlice i  (n-i) v
   where
     n = length v
 
     {-# INLINE [0] put #-}
-    put i x = do
-                unsafeWrite v j x
-                return j
-      where
-        j = i-1
+    put i x  = do let j = (liquidAssume (i > 0) i) - 1 -- LIQUID: stream
+                  unsafeWrite v j x
+                  return j
+
+
+{-@ transformR :: (PrimMonad m, MVector v a)
+     => (MStream m a -> MStream m a) -> (PVec v m a) -> m (PVec v m a) @-}
 
 transformR :: (PrimMonad m, MVector v a)
   => (MStream m a -> MStream m a) -> v (PrimState m) a -> m (v (PrimState m) a)
@@ -387,6 +399,8 @@ munstream s = case upperBound (MStream.size s) of
 --
 -- I'm not sure this still applies (19/04/2010)
 
+{-@ munstreamMax
+     :: (PrimMonad m, MVector v a) => MStream m a -> Nat -> m (PVec v m a) @-}
 munstreamMax
   :: (PrimMonad m, MVector v a) => MStream m a -> Int -> m (v (PrimState m) a)
 {-# INLINE munstreamMax #-}
@@ -394,32 +408,36 @@ munstreamMax s n
   = do
       v <- ((Ck.checkLength "Data/Vector/Generic/Mutable.hs" 331) Ck.Internal) "munstreamMax" n
            $ unsafeNew n
-      let put i x = do
-                       ((Ck.checkIndex "Data/Vector/Generic/Mutable.hs" 334) Ck.Internal) "munstreamMax" i n
-                         $ unsafeWrite v i x
-                       return (i+1)
+      let put i' x = do ((Ck.checkIndex "Data/Vector/Generic/Mutable.hs" 334) Ck.Internal) "munstreamMax" i n
+                           $ unsafeWrite v i x
+                        return (i+1)
+                     where i = liquidAssume (i' < n) i' -- LIQUID: stream
       n' <- MStream.foldM' put 0 s
       return $ ((Ck.checkSlice "Data/Vector/Generic/Mutable.hs" 338) Ck.Internal) "munstreamMax" 0 n' n
              $ unsafeSlice 0 n' v
 
+{-@ munstreamUnknown
+     :: (PrimMonad m, MVector v a) => MStream m a -> m (PVec v m a) @-}
 munstreamUnknown
   :: (PrimMonad m, MVector v a) => MStream m a -> m (v (PrimState m) a)
 {-# INLINE munstreamUnknown #-}
 munstreamUnknown s
   = do
       v <- unsafeNew 0
-      (v', n) <- MStream.foldM put (v, 0) s
+      let z    = (v, 0)
+      (v', n) <- MStream.foldM put (id z) s
       return $ ((Ck.checkSlice "Data/Vector/Generic/Mutable.hs" 348) Ck.Internal) "munstreamUnknown" 0 n (length v')
-             $ unsafeSlice 0 n v'
+             $ unsafeSlice  0 n v'
   where
     {-# INLINE [0] put #-}
-    put (v,i) x = do
-                    v' <- unsafeAppend1 v i x
-                    return (v',i+1)
+    put (v, i) x = do v' <-  unsafeAppend1 v i x
+                      return (v',i+1)
 
 -- | Create a new mutable vector and fill it with elements from the 'Stream'
 -- from right to left. The vector will grow exponentially if the maximum size
 -- of the 'Stream' is unknown.
+
+{-@ unstreamR :: (PrimMonad m, MVector v a) => Stream a -> m (PVec v m a) @-}
 unstreamR :: (PrimMonad m, MVector v a) => Stream a -> m (v (PrimState m) a)
 -- NOTE: replace INLINE [1] by INLINE? (also in unstream)
 {-# INLINE [1] unstreamR #-}
@@ -428,12 +446,14 @@ unstreamR s = munstreamR (Stream.liftStream s)
 -- | Create a new mutable vector and fill it with elements from the monadic
 -- stream from right to left. The vector will grow exponentially if the maximum
 -- size of the stream is unknown.
+{-@ munstreamR :: (PrimMonad m, MVector v a) => MStream m a -> m (PVec v m a) @-}
 munstreamR :: (PrimMonad m, MVector v a) => MStream m a -> m (v (PrimState m) a)
 {-# INLINE [1] munstreamR #-}
 munstreamR s = case upperBound (MStream.size s) of
                Just n  -> munstreamRMax     s n
                Nothing -> munstreamRUnknown s
-
+{-@ munstreamRMax
+     :: (PrimMonad m, MVector v a) => MStream m a -> Nat -> m (PVec v m a) @-}
 munstreamRMax
   :: (PrimMonad m, MVector v a) => MStream m a -> Int -> m (v (PrimState m) a)
 {-# INLINE munstreamRMax #-}
@@ -442,7 +462,7 @@ munstreamRMax s n
       v <- ((Ck.checkLength "Data/Vector/Generic/Mutable.hs" 378) Ck.Internal) "munstreamRMax" n
            $ unsafeNew n
       let put i x = do
-                      let i' = i-1
+                      let i' = (liquidAssume (0 < i) i) -1
                       ((Ck.checkIndex "Data/Vector/Generic/Mutable.hs" 382) Ck.Internal) "munstreamRMax" i' n
                         $ unsafeWrite v i' x
                       return i'
@@ -519,13 +539,15 @@ tail v = slice 1 (length v - 1) v
 
 -- | Yield a part of the mutable vector without copying it. No bounds checks
 -- are performed.
+{-@ unsafeSlice  :: (MVector v a) => i:Nat -> n:Nat -> {v: (v s a) | i + n <= (mvLen v)} -> {v: (v s a) | (mvLen v) = n} @-}
+
 unsafeSlice :: MVector v a => Int  -- ^ starting index
                            -> Int  -- ^ length of the slice
                            -> v s a
                            -> v s a
 {-# INLINE unsafeSlice #-}
-unsafeSlice i n v = ((Ck.checkSlice "Data/Vector/Generic/Mutable.hs" 461) Ck.Unsafe) "unsafeSlice" i n (length v)
-                  $ basicUnsafeSlice i n v
+unsafeSlice i n v = ((Ck.checkSlice    "Data/Vector/Generic/Mutable.hs" 461) Ck.Unsafe) "unsafeSlice" i n (length v)
+                  $ basicUnsafeSlice i n  v
 
 unsafeInit :: MVector v a => v s a -> v s a
 {-# INLINE unsafeInit #-}
@@ -698,7 +720,7 @@ unsafeWrite :: (PrimMonad m, MVector v a)
                                 => v (PrimState m) a -> Int -> a -> m ()
 {-# INLINE unsafeWrite #-}
 unsafeWrite v i x = ((Ck.checkIndex "Data/Vector/Generic/Mutable.hs" 622) Ck.Unsafe) "unsafeWrite" i (length v)
-                  $ basicUnsafeWrite v i x
+                  $ basicUnsafeWrite v  i x
 
 -- | Swap the elements at the given positions. No bounds checks are performed.
 unsafeSwap :: (PrimMonad m, MVector v a)
