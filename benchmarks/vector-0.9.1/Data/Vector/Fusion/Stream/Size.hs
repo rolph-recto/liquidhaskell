@@ -11,7 +11,7 @@
 -- Maintainer  : Roman Leshchinskiy <rl@cse.unsw.edu.au>
 -- Stability   : experimental
 -- Portability : portable
--- 
+--
 -- Size hints for streams.
 --
 
@@ -26,6 +26,8 @@ data Size = Exact Int          -- ^ Exact size
           | Max   Int          -- ^ Upper bound on the size
           | Unknown            -- ^ Unknown size
         deriving( Eq, Show )
+
+{-@ data Size = Exact Nat | Max Nat | Unknown @-}
 
 instance Num Size where
   Exact m + Exact n = Exact (m+n)
@@ -85,8 +87,9 @@ lowerBound (Exact n) = n
 lowerBound _         = 0
 
 -- | Compute the maximum size from a size hint if possible
+
+{-@ upperBound :: Size -> Maybe {v:Int | v = 10} @-}
 upperBound :: Size -> Maybe Int
 upperBound (Exact n) = Just n
 upperBound (Max   n) = Just n
 upperBound Unknown   = Nothing
-

@@ -11,7 +11,7 @@
 -- Generic interface to mutable vectors
 --
 
-{-@ LIQUID "--shortnames"}
+{-@ LIQUID "--shortnames" @-}
 
 module Data.Vector.Generic.Mutable (
   -- * Class of mutable vector types
@@ -124,7 +124,8 @@ import qualified Data.Vector.Internal.Check as Ck
 {-@ class measure mvLen :: forall a. a -> Int @-}
 
 
-{-@ type PVec v m a        = {x: (v (PrimState m) a) | 0 <= (mvLen x)}            @-}
+{-@ type PVec v m a        = {x: (v (PrimState m) a) | 0 <= (mvLen x)}    @-}
+{-@ type PVecN v m a N     = {x: (PVec v m a) | (mvLen x) = N}            @-}
 {-@ type VecAndIx a K      = (a, Int) <{\vec v -> (ValidIx (v-K) vec)}>   @-}
 
 {-@ type Pos               = {v:Int | 0 < v }            @-}
@@ -132,10 +133,14 @@ import qualified Data.Vector.Internal.Check as Ck
 {-@ type OkIx X            = {v:Int | (ValidIx v X)}     @-}
 {-@ predicate SzPlus V X N = (mvLen V) = (mvLen X) + N   @-}
 
+{-@ predicate OkSlice V I N = I + N <= (mvLen V)         @-}
+
+{-@ predicate HasN V N = (OkSlice V 0 N) @-}
+
 {-@
 class MVector v a where
   basicLength          :: forall s. x:(v s a) -> {v:Nat | v = (mvLen x)}
-  basicUnsafeSlice     :: forall s. i:Nat -> n:Nat -> {v: (v s a) | i + n <= (mvLen v)} -> {v: (v s a) | (mvLen v) = n}
+  basicUnsafeSlice     :: forall s. i:Nat -> n:Nat -> {v: (v s a) | (OkSlice v i n)} -> {v: (v s a) | (mvLen v) = n}
   basicOverlaps        :: forall s. (v s a) -> (v s a) -> Bool
   basicUnsafeNew       :: forall m. PrimMonad m => n:Nat -> (m {x:(v (PrimState m) a) | (mvLen x) = n})
   basicUnsafeReplicate :: forall m. PrimMonad m => Int -> a -> (m (v (PrimState m) a))
@@ -285,14 +290,14 @@ unsafeAppend1 v i x
                      return v'
 
 {-@ unsafePrepend1 :: (PrimMonad m, MVector v a)
-        => x:(PVec v m a) -> (OkIx x) -> a -> m (VecAndIx (PVec v m a) {0}) @-}
+        => x:(PVec v m a) -> {v:Nat | v <= (mvLen x)} -> a -> m (VecAndIx (PVec v m a) {0}) @-}
 
 unsafePrepend1 :: (PrimMonad m, MVector v a)
         => v (PrimState m) a -> Int -> a -> m (v (PrimState m) a, Int)
 {-# INLINE [0] unsafePrepend1 #-}
 unsafePrepend1 v i x
   | i /= 0    = do
-                  let i' = i - 1
+                  let i' = i  - 1
                   unsafeWrite v i' x
                   return (v, i')
   | otherwise = do
@@ -330,10 +335,12 @@ fill v s = v `seq` do
                 return (i+1)
                where i  = liquidAssume (i' < length v) i' -- LIQUID: stream size
 
+{-@ transform :: (PrimMonad m, MVector v a)
+      => (MStream m a -> MStream m a) -> (PVec v m a) -> m (PVec v m a) @-}
 transform :: (PrimMonad m, MVector v a)
   => (MStream m a -> MStream m a) -> v (PrimState m) a -> m (v (PrimState m) a)
 {-# INLINE [1] transform #-}
-transform f v = fill v (f (mstream v))
+transform f v = fill v  (f (mstream v))
 
 mstreamR :: (PrimMonad m, MVector v a) => v (PrimState m) a -> MStream m a
 {-# INLINE mstreamR #-}
@@ -388,7 +395,7 @@ unstream s = munstream (Stream.liftStream s)
 munstream :: (PrimMonad m, MVector v a) => MStream m a -> m (v (PrimState m) a)
 {-# INLINE [1] munstream #-}
 munstream s = case upperBound (MStream.size s) of
-               Just n  -> munstreamMax     s n
+               Just n  -> munstreamMax     s   n
                Nothing -> munstreamUnknown s
 
 -- FIXME: I can't think of how to prevent GHC from floating out
@@ -448,12 +455,14 @@ unstreamR s = munstreamR (Stream.liftStream s)
 -- | Create a new mutable vector and fill it with elements from the monadic
 -- stream from right to left. The vector will grow exponentially if the maximum
 -- size of the stream is unknown.
+
 {-@ munstreamR :: (PrimMonad m, MVector v a) => MStream m a -> m (PVec v m a) @-}
 munstreamR :: (PrimMonad m, MVector v a) => MStream m a -> m (v (PrimState m) a)
 {-# INLINE [1] munstreamR #-}
 munstreamR s = case upperBound (MStream.size s) of
                Just n  -> munstreamRMax     s n
                Nothing -> munstreamRUnknown s
+
 {-@ munstreamRMax
      :: (PrimMonad m, MVector v a) => MStream m a -> Nat -> m (PVec v m a) @-}
 munstreamRMax
@@ -484,7 +493,7 @@ munstreamRUnknown s
              $ unsafeSlice i (n-i) v'
   where
     {-# INLINE [0] put #-}
-    put (v,i) x = unsafePrepend1 v i x
+    put (v, i) x = unsafePrepend1 v i x
 
 -- Length
 -- ------
@@ -505,6 +514,7 @@ null v = length v == 0
 -- ---------------------
 
 -- | Yield a part of the mutable vector without copying it.
+{-@ slice :: MVector v a => i:Nat -> n:Nat -> {v: (v s a) | (OkSlice v i n)} -> (v s a) @-}
 slice :: MVector v a => Int -> Int -> v s a -> v s a
 {-# INLINE slice #-}
 slice i n v = ((Ck.checkSlice "Data/Vector/Generic/Mutable.hs" 422) Ck.Bounds) "slice" i n (length v)
@@ -551,21 +561,25 @@ unsafeSlice :: MVector v a => Int  -- ^ starting index
 unsafeSlice i n v = ((Ck.checkSlice    "Data/Vector/Generic/Mutable.hs" 461) Ck.Unsafe) "unsafeSlice" i n (length v)
                   $ basicUnsafeSlice i n  v
 
+{-@ unsafeInit :: MVector v a => x:{(v s a) | (mvLen x) > 0} -> {v: (v s a) | (mvLen v)  = (mvLen x) - 1} @-}
 unsafeInit :: MVector v a => v s a -> v s a
 {-# INLINE unsafeInit #-}
-unsafeInit v = unsafeSlice 0 (length v - 1) v
+unsafeInit v = unsafeSlice  0 (length v -  1)  v
 
+{-@ unsafeTail :: MVector v a => x:{(v s a) | (mvLen x) > 0} -> {v: (v s a) | (mvLen v)  = (mvLen x) - 1} @-}
 unsafeTail :: MVector v a => v s a -> v s a
 {-# INLINE unsafeTail #-}
-unsafeTail v = unsafeSlice 1 (length v - 1) v
+unsafeTail v = unsafeSlice  1 (length v - 1)  v
 
+{-@ unsafeTake :: MVector v a => n:Nat -> x:{(v s a) | (HasN x n)} -> {v: (v s a) | (mvLen v) = n} @-}
 unsafeTake :: MVector v a => Int -> v s a -> v s a
 {-# INLINE unsafeTake #-}
-unsafeTake n v = unsafeSlice 0 n v
+unsafeTake n v = unsafeSlice  0 n  v
 
+{-@ unsafeDrop :: MVector v a => n:Nat -> x:{(v s a) | (HasN x n)} -> {v: (v s a) | (mvLen v) = (mvLen x) - n} @-}
 unsafeDrop :: MVector v a => Int -> v s a -> v s a
 {-# INLINE unsafeDrop #-}
-unsafeDrop n v = unsafeSlice n (length v - n) v
+unsafeDrop n v = unsafeSlice n (length v   - n) v
 
 -- Overlapping
 -- -----------
@@ -579,17 +593,21 @@ overlaps = basicOverlaps
 -- --------------
 
 -- | Create a mutable vector of the given length.
+
+{-@ new :: (PrimMonad m, MVector v a) => n:Nat -> m (PVecN v m a n)  @-}
 new :: (PrimMonad m, MVector v a) => Int -> m (v (PrimState m) a)
 {-# INLINE new #-}
 new n = ((Ck.checkLength "Data/Vector/Generic/Mutable.hs" 494) Ck.Bounds) "new" n
       $ unsafeNew n
 
 -- | Create a mutable vector of the given length. The length is not checked.
-{-@ unsafeNew :: (PrimMonad m, MVector v a) => n:Nat -> (m {x: (v (PrimState m) a) | (mvLen x) = n}) @-}
+{-@ unsafeNew :: (PrimMonad m, MVector v a) => n:Nat -> m (PVecN v m a n)  @-}
 unsafeNew :: (PrimMonad m, MVector v a) => Int -> m (v (PrimState m) a)
 {-# INLINE unsafeNew #-}
 unsafeNew n = ((Ck.checkLength "Data/Vector/Generic/Mutable.hs" 500) Ck.Unsafe) "unsafeNew" n
-            $ basicUnsafeNew n
+            $ basicUnsafeNew  n
+
+--HEREHEREHERE
 
 -- | Create a mutable vector of the given length (0 if the length is negative)
 -- and fill it with an initial value.

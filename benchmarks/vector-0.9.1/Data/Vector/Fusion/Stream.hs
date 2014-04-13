@@ -8,7 +8,7 @@
 -- Maintainer  : Roman Leshchinskiy <rl@cse.unsw.edu.au>
 -- Stability   : experimental
 -- Portability : non-portable
--- 
+--
 -- Streams for stream fusion
 --
 
@@ -36,7 +36,7 @@ module Data.Vector.Fusion.Stream (
 
   -- * Mapping
   map, concatMap, flatten, unbox,
-  
+
   -- * Zipping
   indexed, indexedR,
   zipWith, zipWith3, zipWith4, zipWith5, zipWith6,
@@ -98,7 +98,7 @@ import GHC.Base ( build )
 
 #include "vector.h"
 
--- | The type of pure streams 
+-- | The type of pure streams
 type Stream = M.Stream Id
 
 -- | Alternative name for monadic streams
@@ -629,4 +629,3 @@ unsafeFromList = M.unsafeFromList
 flatten :: (a -> s) -> (s -> Step s b) -> Size -> Stream a -> Stream b
 {-# INLINE_STREAM flatten #-}
 flatten mk istep sz = M.flatten (return . mk) (return . istep) sz . liftStream
-

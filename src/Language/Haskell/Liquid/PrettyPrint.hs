@@ -1,10 +1,10 @@
-{-# LANGUAGE FlexibleContexts           #-} 
+{-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE UndecidableInstances       #-}
 -- | Module with all the printing routines
 
 module Language.Haskell.Liquid.PrettyPrint (
-  
+
   -- * Printing RType
     ppr_rtype
 
@@ -12,7 +12,7 @@ module Language.Haskell.Liquid.PrettyPrint (
   , showpp
 
   -- * Printing an Orderable List
-  , pprManyOrdered 
+  , pprManyOrdered
   -- * Printing a List with many large items
   , pprintLongList
   , ppSpine
@@ -30,7 +30,7 @@ import Language.Fixpoint.Types hiding (Predicate)
 import Language.Fixpoint.Misc
 import Language.Haskell.Liquid.Types hiding (sort)
 import Language.Fixpoint.Names (dropModuleNames, symSepName, funConName, listConName, tupConName, propConName, boolConName)
-import TypeRep          hiding (maybeParen, pprArrowChain)  
+import TypeRep          hiding (maybeParen, pprArrowChain)
 import Text.Parsec.Pos  (SourcePos)
 import Text.Parsec.Error (ParseError)
 import Var              (Var)
@@ -46,14 +46,14 @@ instance PPrint ErrMsg where
 instance PPrint SourceError where
   pprint = text . show
 
-instance PPrint ParseError where 
-  pprint = text . show 
+instance PPrint ParseError where
+  pprint = text . show
 
 instance PPrint Var where
-  pprint = pprDoc 
+  pprint = pprDoc
 
 instance PPrint Name where
-  pprint = pprDoc 
+  pprint = pprDoc
 
 instance PPrint Type where
   pprint = pprDoc . tidyType emptyTidyEnv
@@ -71,28 +71,28 @@ instance Show Predicate where
 ---------------------------------------------------------------
 pprManyOrdered :: (PPrint a, Ord a) => String -> [a] -> [Doc]
 ---------------------------------------------------------------
-pprManyOrdered msg = map ((text msg <+>) . pprint) . sort -- By (compare `on` pos) 
+pprManyOrdered msg = map ((text msg <+>) . pprint) . sort -- By (compare `on` pos)
 
 
 ---------------------------------------------------------------
 -- | Pretty Printing RefType ----------------------------------
 ---------------------------------------------------------------
 
-ppr_rtype bb p t@(RAllT _ _)       
+ppr_rtype bb p t@(RAllT _ _)
   = ppr_forall bb p t
-ppr_rtype bb p t@(RAllP _ _)       
+ppr_rtype bb p t@(RAllP _ _)
   = ppr_forall bb p t
-ppr_rtype bb p t@(RAllS _ _)       
+ppr_rtype bb p t@(RAllS _ _)
   = ppr_forall bb p t
-ppr_rtype _ _ (RVar a r)         
+ppr_rtype _ _ (RVar a r)
   = ppTy r $ pprint a
-ppr_rtype bb p (RFun x t t' _)  
+ppr_rtype bb p (RFun x t t' _)
   = pprArrowChain p $ ppr_dbind bb FunPrec x t : ppr_fun_tail bb t'
 ppr_rtype bb p (RApp c [t] rs r)
-  | isList c 
+  | isList c
   = ppTy r $ brackets (ppr_rtype bb p t) <> ppReftPs bb rs
 ppr_rtype bb p (RApp c ts rs r)
-  | isTuple c 
+  | isTuple c
   = ppTy r $ parens (intersperse comma (ppr_rtype bb p <$> ts)) <> ppReftPs bb rs
 
 -- BEXPARSER WHY Does this next case kill the parser for BExp? (e.g. LambdaEval.hs)
@@ -100,8 +100,13 @@ ppr_rtype bb p (RApp c ts rs r)
 --   = ppTy r $ {- parens $ -} ppTycon c
 
 ppr_rtype bb p (RApp c ts rs r)
-  = ppTy r $ parens $ ppT c <+> ppReftPs bb rs <+> hsep (ppr_rtype bb p <$> ts)
+  | isEmpty rsDoc && isEmpty tsDoc
+  = ppTy r $ ppT c
+  | otherwise
+  = ppTy r $ parens $ ppT c <+> rsDoc <+> tsDoc
   where
+    rsDoc            = ppReftPs bb rs
+    tsDoc            = hsep (ppr_rtype bb p <$> ts)
     ppT | ppShort bb = text . dropModuleNames . render . ppTycon
         | otherwise  = ppTycon
 
@@ -116,8 +121,8 @@ ppr_rtype _ _ (RExprArg e)
 ppr_rtype bb p (RAppTy t t' r)
   = ppTy r $ ppr_rtype bb p t <+> ppr_rtype bb p t'
 ppr_rtype _ _ (ROth s)
-  = text $ "???-" ++ s 
-ppr_rtype bb p (RRTy r t)         
+  = text $ "???-" ++ s
+ppr_rtype bb p (RRTy r t)
   = text "<<" <+> pprint r <+> text ">>" <+> ppr_rtype bb p t
 ppr_rtype _ _ (RHole r)
   = ppTy r $ text "_"
@@ -136,14 +141,14 @@ ppSpine (RExprArg _)     = text "RExprArg"
 ppSpine (ROth s)         = text "ROth" <+> text s
 ppSpine (RRTy _ _)       = text "RRTy"
 
--- | From GHC: TypeRep 
+-- | From GHC: TypeRep
 -- pprArrowChain p [a,b,c]  generates   a -> b -> c
 pprArrowChain :: Prec -> [Doc] -> Doc
 pprArrowChain _ []         = empty
 pprArrowChain p (arg:args) = maybeParen p FunPrec $
                              sep [arg, sep (map (arrow <+>) args)]
 
--- | From GHC: TypeRep 
+-- | From GHC: TypeRep
 maybeParen :: Prec -> Prec -> Doc -> Doc
 maybeParen ctxt_prec inner_prec pretty
   | ctxt_prec < inner_prec = pretty
@@ -164,20 +169,20 @@ ppAllExpr bb p t
           split zs (RAllE x t t') = split ((x,t):zs) t'
           split zs t	            = (reverse zs, t)
 
-ppReftPs bb rs 
+ppReftPs bb rs
   | all isTauto rs   = empty
-  | not (ppPs ppEnv) = empty 
+  | not (ppPs ppEnv) = empty
   | otherwise        = angleBrackets $ hsep $ punctuate comma $ pprint <$> rs
 
 -- ppr_dbind :: (RefTypable p c tv (), RefTypable p c tv r) => Bool -> Prec -> Symbol -> RType p c tv r -> Doc
-ppr_dbind bb p x t 
-  | isNonSymbol x || (x == dummySymbol) 
+ppr_dbind bb p x t
+  | isNonSymbol x || (x == dummySymbol)
   = ppr_rtype bb p t
   | otherwise
   = pprint x <> colon <> ppr_rtype bb p t
 
 -- ppr_fun_tail :: (RefTypable p c tv (), RefTypable p c tv r) => Bool -> RType p c tv r -> [Doc]
-ppr_fun_tail bb (RFun b t t' _)  
+ppr_fun_tail bb (RFun b t t' _)
   = (ppr_dbind bb FunPrec b t) : (ppr_fun_tail bb t')
 ppr_fun_tail bb t
   = [ppr_rtype bb TopPrec t]
@@ -188,19 +193,19 @@ ppr_forall bb p t
   where
     trep                   = toRTypeRep t
     (cls, t')              = bkClass $ fromRTypeRep $ trep {ty_vars = [], ty_preds = [], ty_labels = []}
-  
+
     ppr_foralls False _ _  _= empty
     ppr_foralls _    [] [] [] = empty
     ppr_foralls True αs πs ss = text "forall" <+> dαs αs <+> dπs (ppPs bb) πs <+> dss (ppSs bb) ss <> dot
     ppr_clss []            = empty
     ppr_clss cs            = (parens $ hsep $ punctuate comma (uncurry (ppr_cls bb p) <$> cs)) <+> text "=>"
 
-    dαs αs                 = sep $ pprint <$> αs 
-    
-    dπs _ []               = empty 
-    dπs False _            = empty 
+    dαs αs                 = sep $ pprint <$> αs
+
+    dπs _ []               = empty
+    dπs False _            = empty
     dπs True πs            = angleBrackets $ intersperse comma $ ppr_pvar_def pprint <$> πs
-    dss _ []               = empty 
+    dss _ []               = empty
     dss _ ss               = angleBrackets $ intersperse comma $ pprint <$> ss
 
 
@@ -211,14 +216,14 @@ ppr_cls bb p c ts
        | otherwise  = pprint
 
 
-ppr_pvar_def pprv (PV s t _ xts) = pprint s <+> dcolon <+> intersperse arrow dargs 
-  where 
+ppr_pvar_def pprv (PV s t _ xts) = pprint s <+> dcolon <+> intersperse arrow dargs
+  where
     dargs = [pprv t | (t,_,_) <- xts] ++ [pprv t, text boolConName]
 
 
 
 instance PPrint RTyVar where
-  pprint (RTV α) 
+  pprint (RTV α)
    | ppTyVar ppEnv = ppr_tyvar α
    | otherwise     = ppr_tyvar_short α
 
