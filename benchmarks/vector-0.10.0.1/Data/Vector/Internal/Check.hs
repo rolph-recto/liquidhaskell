@@ -18,7 +18,7 @@ module Data.Vector.Internal.Check (
   Checks(..), doChecks,
 
   error, internalError,
-  check, checkIndex, checkLength, checkSlice
+  check, checkIndex, checkLength, checkSlice, checkLIQUID, checkIndexLIQUID
 ) where
 
 import GHC.Base( Int(..) )
@@ -116,9 +116,20 @@ check file line kind loc msg cond x
   | not (doChecks kind) || cond = x
   | otherwise = checkError file line kind loc msg
 
+
+{-@ checkLIQUID :: _ -> _ -> _ -> _ -> _ -> b:Bool -> _ -> {v:_ | (Prop b)} @-}
+checkLIQUID :: String -> Int -> Checks -> String -> String -> Bool -> a -> a
+{-# INLINE checkLIQUID #-}
+checkLIQUID file line kind loc msg cond x
+  | not (doChecks kind) || cond = x
+  | otherwise = case kind of
+                  Internal -> internalError file line loc msg
+                  _        -> error file line loc msg
+
 checkIndex_msg :: Int -> Int -> String
 {-# INLINE checkIndex_msg #-}
 checkIndex_msg (I# i#) (I# n#) = checkIndex_msg# i# n#
+
 
 checkIndex_msg# :: Int# -> Int# -> String
 {-# NOINLINE checkIndex_msg# #-}
@@ -129,6 +140,13 @@ checkIndex :: String -> Int -> Checks -> String -> Int -> Int -> a -> a
 {-# INLINE checkIndex #-}
 checkIndex file line kind loc i n x
   = check file line kind loc (checkIndex_msg i n) (i >= 0 && i<n) x
+
+
+{-@ checkIndexLIQUID :: String -> Int -> Checks -> String -> i:Int -> n:Int -> a -> {v:a | (0 <= i && i < n)} @-}
+checkIndexLIQUID :: String -> Int -> Checks -> String -> Int -> Int -> a -> a
+{-# INLINE checkIndexLIQUID #-}
+checkIndexLIQUID file line kind loc i n x
+  = checkLIQUID file line kind loc (checkIndex_msg i n) (i >= 0 && i<n) x
 
 
 checkLength_msg :: Int -> String
@@ -160,4 +178,3 @@ checkSlice :: String -> Int -> Checks -> String -> Int -> Int -> Int -> a -> a
 checkSlice file line kind loc i m n x
   = check file line kind loc (checkSlice_msg i m n)
                              (i >= 0 && m >= 0 && i+m <= n) x
-
