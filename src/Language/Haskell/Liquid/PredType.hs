@@ -270,6 +270,11 @@ substPred msg su@(π,_ ) (RFun x t t' r)
   | otherwise                   = {-meetListWithPSubs πs πt -}(RFun x t t' r')
   where (r', πs)                = splitRPvar π r
 
+substPred msg su@(π,_ ) (RAppTy t t' r) 
+  | null πs                     = RAppTy (substPred msg su t) (substPred msg su t') r
+  | otherwise                   = {-meetListWithPSubs πs πt -}(RAppTy t t' r')
+  where (r', πs)                = splitRPvar π r
+
 substPred msg pt (RCls c ts)    = RCls c (substPred msg pt <$> ts)
 
 substPred msg su (RAllE x t t') = RAllE x (substPred msg su t) (substPred msg su t')
