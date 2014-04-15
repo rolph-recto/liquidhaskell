@@ -9,7 +9,7 @@
 -- htmlized source with mouseover annotations.
 
 module Language.Haskell.Liquid.Annotate (
-  
+
   -- * Types representing annotations
     AnnInfo (..)
   , Annot (..)
@@ -34,14 +34,14 @@ import Data.Function            (on)
 import Data.List                (sortBy)
 import Data.Maybe               (mapMaybe)
 
-import Data.Aeson               
+import Data.Aeson
 import Control.Arrow            hiding ((<+>))
 import Control.Applicative      ((<$>))
 import Control.DeepSeq
 import Control.Monad            (when)
 import Data.Monoid
 
-import System.FilePath          (takeFileName, dropFileName, (</>)) 
+import System.FilePath          (takeFileName, dropFileName, (</>))
 import System.Directory         (findExecutable, copyFile)
 import Text.Printf              (printf)
 
@@ -77,8 +77,10 @@ import qualified Data.Vector         as V
 
 annotate :: Config -> FilePath -> FixResult Error -> FixSolution -> AnnInfo Annot -> IO ()
 annotate cfg fname result sol anna
-  = do annotDump cfg fname (extFileName Html $ extFileName Cst fname) result annm
-       annotDump cfg fname (extFileName Html fname) result annm'
+  = do cHtml <- tmpExtFileName Cst  fname
+       aHtml <- tmpExtFileName Html fname
+       annotDump cfg fname cHtml result annm
+       annotDump cfg fname aHtml result annm'
        showBots annm'
     where
       annm  = closeAnnots anna
@@ -93,63 +95,63 @@ showBots (AI m) = mapM_ showBot $ sortBy (compare `on` fst) $ M.toList m
 
 annotDump :: Config -> FilePath -> FilePath -> FixResult Error -> AnnInfo SpecType -> IO ()
 annotDump cfg srcFile htmlFile result ann
-  = do let annm     = mkAnnMap cfg result ann
-       let annFile  = extFileName Annot srcFile
-       let jsonFile = extFileName Json  srcFile  
-       B.writeFile           jsonFile (encode annm) 
+  = do let annm  = mkAnnMap cfg result ann
+       annFile  <- tmpExtFileName Annot srcFile
+       jsonFile <- tmpExtFileName Json  srcFile
+       B.writeFile           jsonFile (encode annm)
        writeFilesOrStrings   annFile  [Left srcFile, Right (show annm)]
-       annotHtmlDump         htmlFile srcFile annm 
+       annotHtmlDump         htmlFile srcFile annm
        return ()
 
 writeFilesOrStrings :: FilePath -> [Either FilePath String] -> IO ()
-writeFilesOrStrings tgtFile = mapM_ $ either (`copyFile` tgtFile) (tgtFile `appendFile`) 
+writeFilesOrStrings tgtFile = mapM_ $ either (`copyFile` tgtFile) (tgtFile `appendFile`)
 
 annotHtmlDump htmlFile srcFile annm
   = do src     <- readFile srcFile
        let lhs  = isExtFile LHs srcFile
        let body = {-# SCC "hsannot" #-} ACSS.hsannot False (Just tokAnnot) lhs (src, annm)
        cssFile <- getCssPath
-       copyFile cssFile (dropFileName htmlFile </> takeFileName cssFile) 
+       copyFile cssFile (dropFileName htmlFile </> takeFileName cssFile)
        renderHtml lhs htmlFile srcFile (takeFileName cssFile) body
 
-renderHtml True  = renderPandoc 
+renderHtml True  = renderPandoc
 renderHtml False = renderDirect
 
 -------------------------------------------------------------------------
--- | Pandoc HTML Rendering (for lhs + markdown source) ------------------ 
+-- | Pandoc HTML Rendering (for lhs + markdown source) ------------------
 -------------------------------------------------------------------------
-     
+
 renderPandoc htmlFile srcFile css body
-  = do renderFn <- maybe renderDirect renderPandoc' <$> findExecutable "pandoc"  
+  = do renderFn <- maybe renderDirect renderPandoc' <$> findExecutable "pandoc"
        renderFn htmlFile srcFile css body
 
 renderPandoc' pandocPath htmlFile srcFile css body
-  = do _  <- writeFile mdFile $ pandocPreProc body
-       ec <- executeShellCommand "pandoc" cmd 
+  = do mdFile <- tmpExtFileName Mkdn srcFile
+       _      <- writeFile mdFile $ pandocPreProc body
+       let cmd = pandocCmd pandocPath mdFile htmlFile
+       ec     <- executeShellCommand "pandoc" cmd
        writeFilesOrStrings htmlFile [Right (cssHTML css)]
        checkExitCode cmd ec
-    where mdFile = extFileName Mkdn srcFile 
-          cmd    = pandocCmd pandocPath mdFile htmlFile
 
 pandocCmd pandocPath mdFile htmlFile
-  = printf "%s -f markdown -t html %s > %s" pandocPath mdFile htmlFile  
+  = printf "%s -f markdown -t html %s > %s" pandocPath mdFile htmlFile
 
 pandocPreProc  = T.unpack . stripBegin . stripEnd . T.pack
-  where 
-    stripBegin = T.replace (T.pack "\\begin{code}") T.empty 
-    stripEnd   = T.replace (T.pack "\\end{code}")   T.empty 
+  where
+    stripBegin = T.replace (T.pack "\\begin{code}") T.empty
+    stripEnd   = T.replace (T.pack "\\end{code}")   T.empty
 
 -------------------------------------------------------------------------
--- | Direct HTML Rendering (for non-lhs/markdown source) ---------------- 
+-- | Direct HTML Rendering (for non-lhs/markdown source) ----------------
 -------------------------------------------------------------------------
 
 -- More or less taken from hscolour
 
-renderDirect htmlFile srcFile css body 
+renderDirect htmlFile srcFile css body
   = writeFile htmlFile $! (top'n'tail full srcFile css $! body)
-    where full = True -- False  -- TODO: command-line-option 
+    where full = True -- False  -- TODO: command-line-option
 
--- | @top'n'tail True@ is used for standalone HTML, 
+-- | @top'n'tail True@ is used for standalone HTML,
 --   @top'n'tail False@ for embedded HTML
 
 top'n'tail True  title css = (htmlHeader title css ++) . (++ htmlClose)
@@ -181,7 +183,7 @@ cssHTML css = unlines
 -- | Building Annotation Maps ------------------------------------------------
 ------------------------------------------------------------------------------
 
--- | This function converts our annotation information into that which 
+-- | This function converts our annotation information into that which
 --   is required by `Language.Haskell.Liquid.ACSS` to generate mouseover
 --   annotations.
 
@@ -194,14 +196,14 @@ mkStatus (Crash _ _) = ACSS.Error
 mkStatus _           = ACSS.Crash
 
 mkAnnMapErr (Unsafe ls)  = mapMaybe cinfoErr ls
-mkAnnMapErr (Crash ls _) = mapMaybe cinfoErr ls 
+mkAnnMapErr (Crash ls _) = mapMaybe cinfoErr ls
 mkAnnMapErr _            = []
- 
+
 cinfoErr e = case pos e of
                RealSrcSpan l -> Just (srcSpanStartLoc l, srcSpanEndLoc l, showpp e)
                _             -> Nothing
 
--- cinfoErr (Ci (RealSrcSpan l) e) = 
+-- cinfoErr (Ci (RealSrcSpan l) e) =
 -- cinfoErr _                      = Nothing
 
 
@@ -211,7 +213,7 @@ mkAnnMapTyp cfg (AI m)
   $ map (head . sortWith (srcSpanEndCol . fst))
   $ groupWith (lineCol . fst)
   $ [ (l, x) | (RealSrcSpan l, (x:_)) <- M.toList m, oneLine l]
-  where 
+  where
     bindString     = mapPair render . ppr
     env            = if shortNames cfg then ppEnvShort ppEnv else ppEnv
     ppr (x, v)     = (xd, ppr_rtype env TopPrec v)
@@ -219,11 +221,11 @@ mkAnnMapTyp cfg (AI m)
         xd = maybe (text "unknown") pprint x
 
 
-closeAnnots :: AnnInfo Annot -> AnnInfo SpecType 
+closeAnnots :: AnnInfo Annot -> AnnInfo SpecType
 closeAnnots = closeA . filterA . collapseA
 
-closeA a@(AI m)  = cf <$> a 
-  where 
+closeA a@(AI m)  = cf <$> a
+  where
     cf (Loc loc) = case m `mlookup` loc of
                          [(_, Use t)] -> t
                          [(_, Def t)] -> t
@@ -244,7 +246,7 @@ pickOneA xas = case (rs, ds, ls, us) of
                  (_, (x:_), _, _) -> [x]
                  (_, _, (x:_), _) -> [x]
                  (_, _, _, (x:_)) -> [x]
-  where 
+  where
     rs = [x | x@(_, RDf _) <- xas]
     ds = [x | x@(_, Def _) <- xas]
     ls = [x | x@(_, Loc _) <- xas]
@@ -259,23 +261,23 @@ refToken = Keyword
 
 -- | The top-level function for tokenizing @-block annotations. Used to
 -- tokenize comments by ACSS.
-tokAnnot s 
-  = case trimLiquidAnnot s of 
+tokAnnot s
+  = case trimLiquidAnnot s of
       Just (l, body, r) -> [(refToken, l)] ++ tokBody body ++ [(refToken, r)]
       Nothing           -> [(Comment, s)]
 
-trimLiquidAnnot ('{':'-':'@':ss) 
+trimLiquidAnnot ('{':'-':'@':ss)
   | drop (length ss - 3) ss == "@-}"
-  = Just ("{-@", take (length ss - 3) ss, "@-}") 
-trimLiquidAnnot _  
+  = Just ("{-@", take (length ss - 3) ss, "@-}")
+trimLiquidAnnot _
   = Nothing
 
-tokBody s 
+tokBody s
   | isData s  = tokenise s
   | isType s  = tokenise s
   | isIncl s  = tokenise s
   | isMeas s  = tokenise s
-  | otherwise = tokeniseSpec s 
+  | otherwise = tokeniseSpec s
 
 isMeas = spacePrefix "measure"
 isData = spacePrefix "data"
@@ -285,20 +287,20 @@ isIncl = spacePrefix "include"
 spacePrefix str s@(c:cs)
   | isSpace c   = spacePrefix str cs
   | otherwise   = (take (length str) s) == str
-spacePrefix _ _ = False 
+spacePrefix _ _ = False
 
 
 tokeniseSpec       ::  String -> [(TokenType, String)]
 tokeniseSpec str   = {- traceShow ("tokeniseSpec: " ++ str) $ -} tokeniseSpec' str
 
-tokeniseSpec'      = tokAlt . chopAltDBG -- [('{', ':'), ('|', '}')] 
-  where 
+tokeniseSpec'      = tokAlt . chopAltDBG -- [('{', ':'), ('|', '}')]
+  where
     tokAlt (s:ss)  = tokenise s ++ tokAlt' ss
     tokAlt _       = []
     tokAlt' (s:ss) = (refToken, s) : tokAlt ss
     tokAlt' _      = []
 
-chopAltDBG y = {- traceShow ("chopAlts: " ++ y) $ -} 
+chopAltDBG y = {- traceShow ("chopAlts: " ++ y) $ -}
   filter (/= "") $ concatMap (chopAlts [("{", ":"), ("|", "}")])
   $ chopAlts [("<{", "}>"), ("{", "}")] y
 
@@ -308,8 +310,8 @@ chopAltDBG y = {- traceShow ("chopAlts: " ++ y) $ -}
 
 newtype AnnInfo a = AI (M.HashMap SrcSpan [(Maybe Var, a)])
 
-data Annot        = Use SpecType 
-                  | Def SpecType 
+data Annot        = Use SpecType
+                  | Def SpecType
                   | RDf SpecType
                   | Loc SrcSpan
 
@@ -321,7 +323,7 @@ instance Functor AnnInfo where
   fmap f (AI m) = AI (fmap (fmap (\(x, y) -> (x, f y))) m)
 
 instance PPrint a => PPrint (AnnInfo a) where
-  pprint (AI m) = vcat $ map pprAnnInfoBinds $ M.toList m 
+  pprint (AI m) = vcat $ map pprAnnInfoBinds $ M.toList m
 
 
 instance NFData a => NFData (AnnInfo a) where
@@ -339,28 +341,28 @@ instance PPrint Annot where
   pprint (RDf t) = text "RDf" <+> pprint t
   pprint (Loc l) = text "Loc" <+> pprDoc l
 
-pprAnnInfoBinds (l, xvs) 
+pprAnnInfoBinds (l, xvs)
   = vcat $ map (pprAnnInfoBind . (l,)) xvs
 
-pprAnnInfoBind (RealSrcSpan k, xv) 
+pprAnnInfoBind (RealSrcSpan k, xv)
   = xd $$ pprDoc l $$ pprDoc c $$ pprint n $$ vd $$ text "\n\n\n"
     where l        = srcSpanStartLine k
           c        = srcSpanStartCol k
-          (xd, vd) = pprXOT xv 
+          (xd, vd) = pprXOT xv
           n        = length $ lines $ render vd
 
-pprAnnInfoBind (_, _) 
+pprAnnInfoBind (_, _)
   = empty
 
 pprXOT (x, v) = (xd, pprint v)
   where
     xd = maybe (text "unknown") pprint x
 
-applySolution :: FixSolution -> AnnInfo SpecType -> AnnInfo SpecType 
-applySolution = fmap . fmap . mapReft . map . appSolRefa 
-  where appSolRefa _ ra@(RConc _) = ra 
-        -- appSolRefa _ p@(RPvar _)  = p  
-        appSolRefa s (RKvar k su) = RConc $ subst su $ M.lookupDefault PTop k s  
+applySolution :: FixSolution -> AnnInfo SpecType -> AnnInfo SpecType
+applySolution = fmap . fmap . mapReft . map . appSolRefa
+  where appSolRefa _ ra@(RConc _) = ra
+        -- appSolRefa _ p@(RPvar _)  = p
+        appSolRefa s (RKvar k su) = RConc $ subst su $ M.lookupDefault PTop k s
         mapReft f (U (Reft (x, zs)) p s) = U (Reft (x, squishRefas $ f zs)) p s
 
 
@@ -375,7 +377,7 @@ type AnnErrors = [(Loc, Loc, String)]
 data Annot1    = A1  { ident :: String
                      , ann   :: String
                      , row   :: Int
-                     , col   :: Int  
+                     , col   :: Int
                      }
 
 ------------------------------------------------------------------------
@@ -388,7 +390,7 @@ instance ToJSON ACSS.Status where
   toJSON ACSS.Error  = "error"
   toJSON ACSS.Crash  = "crash"
 
-instance ToJSON Annot1 where 
+instance ToJSON Annot1 where
   toJSON (A1 i a r c) = object [ "ident" .= i
                                , "ann"   .= a
                                , "row"   .= r
@@ -399,40 +401,40 @@ instance ToJSON Loc where
   toJSON (L (l, c)) = object [ ("line"     .= toJSON l)
                              , ("column"   .= toJSON c) ]
 
-instance ToJSON AnnErrors where 
+instance ToJSON AnnErrors where
   toJSON errs      = Array $ V.fromList $ fmap toJ errs
-    where 
+    where
       toJ (l,l',s) = object [ ("start"   .= toJSON l )
-                            , ("stop"    .= toJSON l') 
+                            , ("stop"    .= toJSON l')
                             , ("message" .= toJSON s ) ]
 
 instance (Show k, ToJSON a) => ToJSON (Assoc k a) where
   toJSON (Asc kas) = object [ (tshow k) .= (toJSON a) | (k, a) <- M.toList kas ]
     where
-      tshow        = T.pack . show 
+      tshow        = T.pack . show
 
-instance ToJSON ACSS.AnnMap where 
+instance ToJSON ACSS.AnnMap where
   toJSON a = object [ ("types"  .= (toJSON $ annTypes a))
                     , ("errors" .= (toJSON $ ACSS.errors   a))
                     , ("status" .= (toJSON $ ACSS.status   a))
                     ]
 
-annTypes         :: ACSS.AnnMap -> AnnTypes 
+annTypes         :: ACSS.AnnMap -> AnnTypes
 annTypes a       = grp [(l, c, ann1 l c x s) | (l, c, x, s) <- binders]
-  where 
-    ann1 l c x s = A1 x s l c 
+  where
+    ann1 l c x s = A1 x s l c
     grp          = L.foldl' (\m (r,c,x) -> ins r c x m) (Asc M.empty)
     binders      = [(l, c, x, s) | (L (l, c), (x, s)) <- M.toList $ ACSS.types a]
 
 ins r c x (Asc m)  = Asc (M.insert r (Asc (M.insert c x rm)) m)
-  where 
+  where
     Asc rm         = M.lookupDefault (Asc M.empty) r m
 
 --------------------------------------------------------------------------------
 -- | A Little Unit Test --------------------------------------------------------
 --------------------------------------------------------------------------------
 
-anns :: AnnTypes  
+anns :: AnnTypes
 anns = i [(5,   i [( 14, A1 { ident = "foo"
                             , ann   = "int -> int"
                             , row   = 5
@@ -440,20 +442,17 @@ anns = i [(5,   i [( 14, A1 { ident = "foo"
                             })
                   ]
           )
-         ,(9,   i [( 22, A1 { ident = "map" 
+         ,(9,   i [( 22, A1 { ident = "map"
                             , ann   = "(a -> b) -> [a] -> [b]"
                             , row   = 9
                             , col   = 22
                             })
                   ,( 28, A1 { ident = "xs"
-                            , ann   = "[b]" 
-                            , row   = 9 
+                            , ann   = "[b]"
+                            , row   = 9
                             , col   = 28
                             })
                   ])
          ]
- 
+
 i = Asc . M.fromList
-
-
-

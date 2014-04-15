@@ -1,26 +1,23 @@
-{-# LANGUAGE TupleSections      #-}
-{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE ScopedTypeVariables       #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE TypeSynonymInstances      #-}
 {-# LANGUAGE FlexibleInstances         #-}
 {-# LANGUAGE TupleSections             #-}
-{-# LANGUAGE BangPatterns              #-}
 
--- | This module contains all the code needed to output the result which 
---   is either: `SAFE` or `WARNING` with some reasonable error message when 
---   something goes wrong. All forms of errors/exceptions should go through 
---   here. The idea should be to report the error, the source position that 
+-- | This module contains all the code needed to output the result which
+--   is either: `SAFE` or `WARNING` with some reasonable error message when
+--   something goes wrong. All forms of errors/exceptions should go through
+--   here. The idea should be to report the error, the source position that
 --   causes it, generate a suitable .json file and then exit.
 
 
 module Language.Haskell.Liquid.CmdLine (
-   -- * Get Command Line Configuration 
+   -- * Get Command Line Configuration
      getOpts, mkOpts
 
    -- * Update Configuration With Pragma
    , withPragmas
-   
+
    -- * Exit Function
    , exitWithResult
 
@@ -39,8 +36,8 @@ import qualified Data.HashMap.Strict as M
 
 import           System.FilePath                          (dropFileName)
 import           System.Environment                       (withArgs)
-import           System.Console.CmdArgs  hiding           (Loud)                
-import           System.Console.CmdArgs.Verbosity         (whenLoud)            
+import           System.Console.CmdArgs  hiding           (Loud)
+import           System.Console.CmdArgs.Verbosity         (whenLoud)
 
 import Language.Fixpoint.Misc
 import Language.Fixpoint.Files
@@ -54,35 +51,35 @@ import Language.Haskell.Liquid.Types hiding     (config, typ, name)
 
 import Name
 import SrcLoc                                   (SrcSpan)
-import Text.PrettyPrint.HughesPJ    
+import Text.PrettyPrint.HughesPJ
 
 
 ---------------------------------------------------------------------------------
 -- Parsing Command Line----------------------------------------------------------
 ---------------------------------------------------------------------------------
 
-config = Config { 
-   files    
-    = def &= typ "TARGET" 
-          &= args 
-          &= typFile 
- 
- , idirs 
-    = def &= typDir 
-          &= help "Paths to Spec Include Directory " 
-   
- , diffcheck 
-    = def 
-          &= help "Incremental Checking: only check changed binders" 
+config = Config {
+   files
+    = def &= typ "TARGET"
+          &= args
+          &= typFile
+
+ , idirs
+    = def &= typDir
+          &= help "Paths to Spec Include Directory "
+
+ , diffcheck
+    = def
+          &= help "Incremental Checking: only check changed binders"
 
  , binders
     = def &= help "Check a specific set of binders"
 
- , noPrune 
+ , noPrune
     = def &= help "Disable prunning unsorted Predicates"
           &= name "no-prune-unsorted"
 
- , notermination 
+ , notermination
     = def &= help "Disable Termination Check"
           &= name "no-termination-check"
 
@@ -98,18 +95,18 @@ config = Config {
           &= name "no-true-types"
 
 
- , totality 
+ , totality
     = def &= help "Check totality"
 
- , smtsolver 
-    = def &= help "Name of SMT-Solver" 
+ , smtsolver
+    = def &= help "Name of SMT-Solver"
 
- , noCheckUnknown 
+ , noCheckUnknown
     = def &= explicit
           &= name "no-check-unknown"
           &= help "Don't complain about specifications for unexported and unused values "
 
- , maxParams 
+ , maxParams
     = 2   &= help "Restrict qualifier mining to those taking at most `m' parameters (2 by default)"
 
  , shortNames
@@ -120,23 +117,23 @@ config = Config {
     = def &= name "ghc-option"
           &= typ "OPTION"
           &= help "Pass this option to GHC"
- 
- -- , verbose  
+
+ -- , verbose
  --    = def &= help "Generate Verbose Output"
  --          &= name "verbose-output"
 
  } &= verbosity
-   &= program "liquid" 
-   &= help    "Refinement Types for Haskell" 
-   &= summary copyright 
+   &= program "liquid"
+   &= help    "Refinement Types for Haskell"
+   &= summary copyright
    &= details [ "LiquidHaskell is a Refinement Type based verifier for Haskell"
               , ""
               , "To check a Haskell file foo.hs, type:"
               , "  liquid foo.hs "
               ]
 
-getOpts :: IO Config 
-getOpts = do md <- cmdArgs config 
+getOpts :: IO Config
+getOpts = do md <- cmdArgs config
              putStrLn $ copyright
              whenLoud $ putStrLn $ "liquid " ++ show md ++ "\n"
              mkOpts md
@@ -144,11 +141,11 @@ getOpts = do md <- cmdArgs config
 copyright = "LiquidHaskell © Copyright 2009-13 Regents of the University of California. All Rights Reserved.\n"
 
 mkOpts :: Config -> IO Config
-mkOpts md  
-  = do files' <- sortNub . concat <$> mapM getHsTargets (files md) 
+mkOpts md
+  = do files' <- sortNub . concat <$> mapM getHsTargets (files md)
        -- idirs' <- if null (idirs md) then single <$> getIncludeDir else return (idirs md)
-       id0 <- getIncludeDir 
-       return  $ md { files = files' } 
+       id0 <- getIncludeDir
+       return  $ md { files = files' }
                     { idirs = (dropFileName <$> files') ++ [id0] ++ idirs md }
                               -- tests fail if you flip order of idirs'
 
@@ -175,15 +172,15 @@ instance Monoid Config where
   mempty        = Config def def def def def def def def def def def 2 def def def
   mappend c1 c2 = Config (sortNub $ files c1   ++     files          c2)
                          (sortNub $ idirs c1   ++     idirs          c2)
-                         (diffcheck c1         ||     diffcheck      c2) 
-                         (sortNub $ binders c1 ++     binders        c2) 
-                         (noCheckUnknown c1    ||     noCheckUnknown c2) 
-                         (notermination  c1    ||     notermination  c2) 
-                         (nocaseexpand   c1    ||     nocaseexpand   c2) 
-                         (strata         c1    ||     strata         c2) 
-                         (notruetypes    c1    ||     notruetypes    c2) 
-                         (totality       c1    ||     totality       c2) 
-                         (noPrune        c1    ||     noPrune        c2) 
+                         (diffcheck c1         ||     diffcheck      c2)
+                         (sortNub $ binders c1 ++     binders        c2)
+                         (noCheckUnknown c1    ||     noCheckUnknown c2)
+                         (notermination  c1    ||     notermination  c2)
+                         (nocaseexpand   c1    ||     nocaseexpand   c2)
+                         (strata         c1    ||     strata         c2)
+                         (notruetypes    c1    ||     notruetypes    c2)
+                         (totality       c1    ||     totality       c2)
+                         (noPrune        c1    ||     noPrune        c2)
                          (maxParams      c1   `max`   maxParams      c2)
                          (smtsolver c1      `mappend` smtsolver      c2)
                          (shortNames c1        ||     shortNames     c2)
@@ -191,9 +188,9 @@ instance Monoid Config where
 
 instance Monoid SMTSolver where
   mempty        = def
-  mappend s1 s2 
-    | s1 == s2  = s1 
-    | s2 == def = s1 
+  mappend s1 s2
+    | s1 == s2  = s1
+    | s2 == def = s1
     | otherwise = s2
 
 
@@ -206,22 +203,22 @@ exitWithResult cfg target o r = writeExit cfg target r $ fromMaybe emptyOutput o
 
 writeExit cfg target r out
   = do {-# SCC "annotate" #-} annotate cfg target r (o_soln out) (o_annot out)
+       resFile <- tmpExtFileName Result target
        donePhase Loud "annotate"
-       let rs = showFix r
        writeResult (colorResult r) r
-       writeFile   (extFileName Result target) rs
+       writeFile   resFile (showFix r)
        writeWarns     $ o_warns out
        writeCheckVars $ o_vars  out
-       return $ if (null $ o_warns out) then r else (Unsafe [])
+       return $ if null $ o_warns out then r else Unsafe []
 
-writeWarns []            = return () 
+writeWarns []            = return ()
 writeWarns ws            = colorPhaseLn Angry "Warnings:" "" >> putStrLn (unlines $ nub ws)
 
 writeCheckVars Nothing   = return ()
 writeCheckVars (Just ns) = colorPhaseLn Loud "Checked Binders:" "" >> forM_ ns (putStrLn . dropModuleNames . showpp)
 
-writeResult c            = mapM_ (writeDoc c) . resDocs 
-  where 
+writeResult c            = mapM_ (writeDoc c) . resDocs
+  where
     writeDoc c           = writeBlock c . lines . render
     writeBlock c (s:ss)  = do {colorPhaseLn c s ""; forM_ ss putStrLn }
     writeBlock c _       = return ()
@@ -240,7 +237,7 @@ instance Fixpoint (FixResult Error) where
   -- vcat [[String]]
   -- toFix Safe             = text "SAFE"
   -- toFix (UnknownError d) = text "Unknown Error!"
-  -- toFix (Crash xs msg)   = vcat $ text "Crash!"  : pprManyOrdered "CRASH:   " xs ++ [parens (text msg)] 
+  -- toFix (Crash xs msg)   = vcat $ text "Crash!"  : pprManyOrdered "CRASH:   " xs ++ [parens (text msg)]
   -- toFix (Unsafe xs)      = vcat $ text "Unsafe:" : pprManyOrdered "WARNING: " xs
 
 
@@ -248,10 +245,10 @@ instance Fixpoint (FixResult Error) where
 -- | Stuff To Output ---------------------------------------------------
 ------------------------------------------------------------------------
 
-data Output = O { o_vars   :: Maybe [Name] 
+data Output = O { o_vars   :: Maybe [Name]
                 , o_warns  :: [String]
-                , o_soln   :: FixSolution 
+                , o_soln   :: FixSolution
                 , o_annot  :: !(AnnInfo Annot)
                 }
 
-emptyOutput = O Nothing [] M.empty mempty 
+emptyOutput = O Nothing [] M.empty mempty

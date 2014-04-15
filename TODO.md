@@ -16,8 +16,11 @@ lazy instantiation
 Liquid Type Error: Base.hs:2469:32-45
 
 
+diffcheck-cpp
+-------------
 
-
+1. foo.hs --generates--> /tmp/123124.hs -- save as 
+2.
 
 
 

@@ -110,6 +110,7 @@ import qualified Data.Vector.Internal.Check as Ck
 --
 --   * 'basicUnsafeWrite'
 --
+
 {-@ qualif Enlarge(v:Int, x:a): 0  = (mvLen x)           @-}
 {-@ qualif Enlarge(v:Int, x:a): v <= (mvLen x)           @-}
 {-@ qualif Enlarge(v:Int, x:a): v < (mvLen x)           @-}
@@ -578,7 +579,7 @@ unsafeTail v = unsafeSlice  1 (length v - 1)  v
 {-@ unsafeTake :: MVector v a => n:Nat -> x:{(v s a) | (HasN x n)} -> {v: (v s a) | (mvLen v) = n} @-}
 unsafeTake :: MVector v a => Int -> v s a -> v s a
 {-# INLINE unsafeTake #-}
-unsafeTake n v = unsafeSlice  0 n  v
+unsafeTake n v = unsafeSlice 0 n v
 
 {-@ unsafeDrop :: MVector v a => n:Nat -> x:{(v s a) | (HasN x n)} -> {v: (v s a) | (mvLen v) = (mvLen x) - n} @-}
 unsafeDrop :: MVector v a => Int -> v s a -> v s a
@@ -892,7 +893,7 @@ update :: (PrimMonad m, MVector v a)
 update !v s = Stream.mapM_ upd  s
   where
     {-# INLINE [0] upd #-}
-    upd (i,b) = ((Ck.checkIndexLIQUID "Data/Vector/Generic/Mutable.hs" 730) Ck.Bounds) "update" i n
+    upd (i,b) = ((Ck.checkIndex "Data/Vector/Generic/Mutable.hs" 730) Ck.Bounds) "update" i n
                 $ unsafeWrite v i b
 
     !n = length v
