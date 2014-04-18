@@ -8,22 +8,6 @@ TODO
 
 * hmatrix
 
-* error messages (see issues on github)
-
-lazy instantiation
-------------------
-
-Liquid Type Error: Base.hs:2469:32-45
-
-
-diffcheck-cpp
--------------
-
-1. foo.hs --generates--> /tmp/123124.hs -- save as 
-2.
-
-
-
 
 exists-based constraints
 ------------------------
@@ -78,10 +62,6 @@ Wordcount for vector
    13208 total
 
 
-
-
-> s -> (a, s)
-
 Dependency order for vector
 
 [ 1 of 19]  [45]      Data.Vector.Storable.Internal
@@ -90,10 +70,10 @@ Dependency order for vector
 [ 3 of 19]  [87]      Data.Vector.Fusion.Stream.Size      (SKIP:STREAM?)
 [ 5 of 19]  [1476]    Data.Vector.Fusion.Stream.Monadic   (SKIP:STREAM?)
 [ 6 of 19]  [634]     Data.Vector.Fusion.Stream           (SKIP:STREAM?)
+[ 7 of 19]  [884]     Data.Vector.Generic.Mutable
 
 HEREHEREHERE
 
-[ 7 of 19]  [884]     Data.Vector.Generic.Mutable
 [ 8 of 19]  [142]     Data.Vector.Generic.Base
 [ 9 of 19]  [172]     Data.Vector.Generic.New
 [10 of 19]  [2027]    Data.Vector.Generic
