@@ -108,12 +108,14 @@ import Prelude hiding ( length, null, replicate, reverse, map, read,
 {-@ type PVecN v m a N     = {x: (PVec v m a) | (mvLen x) = N}            @-}
 {-@ type VecAndIx a K      = (a, Int) <{\vec v -> (ValidIx (v-K) vec)}>   @-}
 {-@ type PVecV v m a Y     = {x: (PVec v m a) | (mvLen x) = (mvLen Y)}    @-}
-{-@ type Pos               = {v:Int | 0 < v }            @-}
-{-@ predicate ValidIx I V  = (0 <= I && I < (mvLen V))   @-}
-{-@ type OkIx X            = {v:Int | (ValidIx v X)}     @-}
+{-@ type Pos               = {v:Int | 0 < v }                             @-}
+{-@ type NatN N            = {v:Nat | v = N}                              @-}
+{-@ predicate ValidIx I V  = (0 <= I && I < (mvLen V))                    @-}
+{-@ type OkIx X            = {v:Int | (ValidIx v X)}                      @-}
 
-{-@ predicate SzPlus V X N = (mvLen V) = (mvLen X) + N   @-}
-{-@ predicate OkSlice V I N = I + N <= (mvLen V)         @-}
+{-@ predicate SzEq   V X   = (mvLen V) = (mvLen X)                        @-}
+{-@ predicate SzPlus V X N = (mvLen V) = (mvLen X) + N                    @-}
+{-@ predicate OkSlice V I N = I + N <= (mvLen V)                          @-}
 {-@ predicate HasN V N = (OkSlice V 0 N) @-}
 
 {-@ class measure mvLen :: forall a. a -> Int @-}
@@ -1002,7 +1004,7 @@ partitionMax f s n
                             unsafeWrite v j' x
                             return (i,j')
             where
-              i = liquidAssume (i'' < j'') i'' 
+              i = liquidAssume (i'' < j'') i''
               j = liquidAssume (i'' < j'') j''
 
       (i,j) <- Stream.foldM' put (0,n) s

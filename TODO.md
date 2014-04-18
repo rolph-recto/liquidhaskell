@@ -71,10 +71,10 @@ Dependency order for vector
 [ 5 of 19]  [1476]    Data.Vector.Fusion.Stream.Monadic   (SKIP:STREAM?)
 [ 6 of 19]  [634]     Data.Vector.Fusion.Stream           (SKIP:STREAM?)
 [ 7 of 19]  [884]     Data.Vector.Generic.Mutable
+[ 8 of 19]  [142]     Data.Vector.Generic.Base            (no class instances...)
 
 HEREHEREHERE
 
-[ 8 of 19]  [142]     Data.Vector.Generic.Base
 [ 9 of 19]  [172]     Data.Vector.Generic.New
 [10 of 19]  [2027]    Data.Vector.Generic
 
