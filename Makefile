@@ -102,3 +102,6 @@ test:
 
 lint:
 	hlint --colour --report .
+
+tags:
+	find src -name "*.hs" | xargs hothasktags > tags
