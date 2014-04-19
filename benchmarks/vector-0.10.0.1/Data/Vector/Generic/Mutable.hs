@@ -321,7 +321,7 @@ fill v s = v `seq` do
       => (MStream m a -> MStream m a) -> (PVec v m a) -> m (PVec v m a) @-}
 transform :: (PrimMonad m, MVector v a)
   => (MStream m a -> MStream m a) -> v (PrimState m) a -> m (v (PrimState m) a)
-{-# INLINE_STREAM transform #-}
+{-# INLINE_STREAM transform #-} -- LIQUID: type application oddity with New.transform (CHECK)
 transform f v = fill v (f (mstream v))
 
 mstreamR :: (PrimMonad m, MVector v a) => v (PrimState m) a -> MStream m a
