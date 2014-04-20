@@ -12,6 +12,8 @@
 -- Purely functional interface to initialisation of mutable vectors
 --
 
+{-@ LIQUID "--short-names" @-}
+
 module Data.Vector.Generic.New (
   New(..), create, run, runPrim, apply, modify, modifyWithStream,
   unstream, transform, unstreamR, transformR,
@@ -33,6 +35,8 @@ import Control.Monad  ( liftM )
 import Prelude hiding ( init, tail, take, drop, reverse, map, filter )
 
 #include "../../../include/vector.h"
+
+{-@ data New v a = New (nn :: (forall s. ST s {z:(Mutable v s a) | 0 <= (mvLen z)})) @-}
 
 data New v a = New (forall s. ST s (Mutable v s a))
 
