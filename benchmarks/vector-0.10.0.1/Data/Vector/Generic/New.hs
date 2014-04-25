@@ -52,6 +52,8 @@ runPrim :: PrimMonad m => New v a -> m (Mutable v (PrimState m) a)
 {-# INLINE runPrim #-}
 runPrim (New p) = primToPrim p
 
+
+
 apply :: (forall s. Mutable v s a -> Mutable v s a) -> New v a -> New v a
 {-# INLINE apply #-}
 apply f (New p) = New (liftM f p)

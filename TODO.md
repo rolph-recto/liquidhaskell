@@ -75,8 +75,8 @@ Dependency order for vector
 [ 9 of 19]  [172]     Data.Vector.Generic.New             (TODO:FORALL/APP/github issue #202)
 
 HEREHEREHERE
-[10 of 19]  [2027]    Data.Vector.Generic
 
+[10 of 19]  [2027]    Data.Vector.Generic
 [11 of 19]  [332]     Data.Vector.Primitive.Mutable
 [12 of 19]  [1328]    Data.Vector.Primitive
 [13 of 19]  [490]     Data.Vector.Storable.Mutable

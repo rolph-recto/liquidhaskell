@@ -21,7 +21,7 @@ specificationQualifiers :: Int -> GhcInfo -> [Qualifier]
 -----------------------------------------------------------------------------------
 
 specificationQualifiers k info
-  = [ q | (x, t) <- tySigs $ spec info
+  = [ q | (x, t) <- (tySigs $ spec info) ++ (asmSigs $ spec info)
         , x `S.member` (S.fromList $ defVars info)
         , q <- refTypeQuals (tcEmbeds $ spec info) (val t)
         , length (q_params q) <= k + 1
@@ -75,12 +75,12 @@ pAppQual tce p args (v, expr) =  Q "Auto" freeVars pred
 
 -- refTypeQuals :: SpecType -> [Qualifier]
 refTypeQuals' tce t0          = go emptySEnv t0
-  where
-    go γ t@(RVar _ _)         = refTopQuals tce t0 γ t
-    go γ (RAllT _ t)          = go γ t
-    go γ (RAllP _ t)          = go γ t
+  where 
+    go γ t@(RVar _ _)         = refTopQuals tce t0 γ t     
+    go γ (RAllT _ t)          = go γ t 
+    go γ (RAllP _ t)          = go γ t 
     go γ t@(RAppTy t1 t2 r)   = go γ t1 ++ go γ t2 ++ refTopQuals tce t0 γ t
-    go γ (RFun x t t' _)      = (go γ t)
+    go γ (RFun x t t' _)      = (go γ t) 
                                 ++ (go (insertSEnv x (rTypeSort tce t) γ) t')
     go γ t@(RApp c ts rs _)   = (refTopQuals tce t0 γ t)
                                 ++ concatMap (go (insertSEnv (rTypeValueVar t) (rTypeSort tce t) γ)) ts

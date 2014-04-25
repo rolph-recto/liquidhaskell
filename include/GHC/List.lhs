@@ -49,8 +49,6 @@ import Language.Haskell.Liquid.Prelude (liquidAssert, liquidError)
 infixl 9  !!
 infix  4 `elem`, `notElem`
 
-
-
 -- RJ: this clutters ALL code EVERYWHERE. Put somewhere less global.
 {- measure sumLens :: [[a]] -> Int
    sumLens ([])   = 0
@@ -358,7 +356,7 @@ dropWhile p xs@(x:xs')
 -- in which @n@ may be of any integral type.
 
 
-{-@ take :: n:Nat
+{-@ take :: n:Int
          -> xs:[a] 
          -> {v:[a] | (if (n >=0) then ((len v) = ((len(xs) < n) ? len(xs):n)) else ((len v) = 0))} 
   @-}
@@ -444,7 +442,7 @@ take (I# n#) xs = takeUInt n# xs
 takeUInt :: Int# -> [b] -> [b]
 takeUInt n xs
   | n >=# 0#  =  take_unsafe_UInt n xs
-  | otherwise =  liquidAssert False []
+  | otherwise =  []
 
 take_unsafe_UInt :: Int# -> [b] -> [b]
 take_unsafe_UInt 0#  _  = []
