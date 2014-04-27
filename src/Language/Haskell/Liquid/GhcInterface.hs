@@ -208,11 +208,7 @@ getGhcModGutsSimpl1 fn = do
        (cg,_)     <- liftIO $ tidyProgram hsc_env simpl_guts
        liftIO $ putStrLn "************************* CoreGuts ****************************************"
        liftIO $ putStrLn (showPpr $ cg_binds cg)
-<<<<<<< HEAD
-       return $! (miModGuts mod_guts) { mgi_binds = cg_binds cg }
-=======
        return $! (miModGuts Nothing mod_guts) { mgi_binds = cg_binds cg } 
->>>>>>> 36a2ce37a0245ea15e0297d6d57d4cc6b3b472d2
      Nothing         -> error "GhcInterface : getGhcModGutsSimpl1"
 
 peepGHCSimple fn
