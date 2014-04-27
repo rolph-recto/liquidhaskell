@@ -1148,7 +1148,7 @@ bareTCApp _ r c rs ts | (not (isFamilyTyCon c)) && isSynTyCon c
 
 -- TODO expandTypeSynonyms here to
 bareTCApp _ r c rs ts | isFamilyTyCon c && isTrivial t
-  = expandRTypeSynonyms $ t `strengthen` r 
+  = (expandRTypeSynonyms t) `strengthen` r 
   where t = rApp c ts rs mempty
 
 bareTCApp _ r c rs ts 
