@@ -545,16 +545,32 @@ actions (all the business about exists z and Q is to allow us to depend on the o
 value of `f` (c.f. tests/pos/cont1.hs)
 
 
-PROJECT: HTT style ST/IO reasoning with Abstract Refinements
-------------------------------------------------------------
+Liquid TypeState
+----------------
+
+**Implementation**
+
+0. Create basic tests
+
+1. Sigs
+    - Define HProp
+    - Allow HProp inside Π (abs-pred) ...
+    - ... i.e. allow me to index types with HProp
+
+2. Cons
+    - fresh HVar `h`
+    - wf constraint `γ |- h` (to generate wf constraints on `κ`)
+    - subtyping constraint at application sites.
+    
+3. Solve
+    - for each const
+
+---
 
 
 1. Introduce a new sort of refinement `HProp`
-
 2. Index `IO` or `State` by `HProp`
-
 3. Suitable signatures for monadic operators
-
 
 **Heap Propositions** `HProp`
 
