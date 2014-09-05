@@ -136,7 +136,7 @@ makeGhcSpec1 vars embs tyi exports name sigs asms cs' ms' cms' su sp
   = do tySigs  <- makePluggedSigs name embs tyi exports $ tx sigs
        asmSigs <- makePluggedAsmSigs embs tyi $ tx asms
        ctors   <- makePluggedAsmSigs embs tyi $ tx cs'
-       -- RJ:HEREHEREHERE: Used to be a "renameTy
+       -- RJ:HEREHEREHERE: Used to be a `renameTyVars`
        -- asmSigs = renameTyVars <$> tx asms
        -- ctors   = tx   cs'
        return   $ sp { tySigs     = tySigs
