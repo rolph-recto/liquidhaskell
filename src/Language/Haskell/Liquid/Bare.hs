@@ -44,7 +44,6 @@ import RdrName                  (setRdrNameSpace)
 import OccName                  (tcName)
 import Data.Char                (isLower, isUpper)
 import Text.Printf
--- import Data.Maybe               (listToMaybe, fromMaybe, mapMaybe, catMaybes, isNothing, fromJust)
 import qualified Control.Monad
 
 
@@ -60,8 +59,6 @@ import qualified Control.Exception as Ex
 import Data.Bifunctor
 import Data.Generics.Aliases    (mkT)
 import Data.Generics.Schemes    (everywhere)
--- import Data.Data                hiding (TyCon, tyConName)
--- import Data.Function            (on)
 import qualified Data.Text as T
 import Text.Parsec.Pos
 import Language.Fixpoint.Misc
@@ -102,7 +99,6 @@ makeGhcSpec cfg name cbs vars defVars exports env specs
     
 postProcess :: [CoreBind] -> GhcSpec -> GhcSpec
 postProcess cbs sp@(SP {..}) = sp { tySigs = sigs, texprs = ts }
-  -- HEREHEREHEREHERE (addTyConInfo stuff) 
   where
     (sigs, ts) = replaceLocalBinds tcEmbeds tyconEnv tySigs texprs (ghcSpecEnv sp) cbs
 
@@ -113,15 +109,11 @@ makeGhcSpec' :: Config -> [Var] -> [Var] -> NameSet -> [(ModName, Ms.BareSpec)] 
 makeGhcSpec' cfg vars defVars exports specs
   = do name                                    <- gets modName
        _                                       <- makeRTEnv specs
-       --  (tycons, datacons, dcSelectors, tyi)    <- makeGhcSpecCHOP1 specs
        (tycons, datacons, dcSs, tyi, embs)     <- makeGhcSpecCHOP1 specs
        modify                                   $ \be -> be { tcEnv = tyi }
        (cls, mts)                              <- second mconcat . unzip . mconcat <$> mapM (makeClasses cfg vars) specs
-       -- (invs, ialias, embs, sigs, asms)        <- makeGhcSpecCHOP2 cfg vars defVars specs name cls mts 
-       -- (measures, cms', ms', cs', xs')         <- makeGhcSpecCHOP3 cfg vars specs dcSelectors datacons cls embs
        (invs, ialias, sigs, asms)              <- makeGhcSpecCHOP2 cfg vars defVars specs name cls mts embs
        (measures, cms', ms', cs', xs')         <- makeGhcSpecCHOP3 cfg vars specs dcSs datacons cls embs
-
        syms                                    <- makeSymbols (vars ++ map fst cs') xs' (sigs ++ asms ++ cs') ms' (invs ++ (snd <$> ialias))
        let su  = mkSubst [ (x, mkVarExpr v) | (x, v) <- syms]
        return (emptySpec cfg)
@@ -183,9 +175,6 @@ makeGhcSpecCHOP1 specs
   = do (tcs, dcs)      <- mconcat <$> mapM makeConTypes specs
        let tycons       = tcs        ++ wiredTyCons 
        let tyi          = makeTyConInfo tycons
-       -- let datacons     = mapSnd val <$> (concat dcs ++ wiredDataCons)
-       -- let dcSelectors  = concat $ map makeMeasureSelectors (concat dcs)
-       -- return           $ (tycons, datacons, dcSelectors, tyi) 
        embs            <- mconcat <$> mapM makeTyConEmbeds specs
        datacons        <- makePluggedDataCons embs tyi (concat dcs ++ wiredDataCons)
        let dcSelectors  = concat $ map makeMeasureSelectors datacons
@@ -197,7 +186,6 @@ makeGhcSpecCHOP2 cfg vars defVars specs name cls mts embs
        asms'   <- mconcat <$> mapM (makeAssumeSpec name cfg vars defVars) specs
        invs    <- mconcat <$> mapM makeInvariants specs
        ialias  <- mconcat <$> mapM makeIAliases   specs
-       -- embs    <- mconcat <$> mapM makeTyConEmbeds specs
        let dms  = makeDefaultMethods vars mts
        tyi     <- gets tcEnv
        let sigs = [ (x, txRefSort tyi embs . txExpToBind <$> t) | (m, x, t) <- sigs' ++ mts ++ dms ]
@@ -224,14 +212,6 @@ makeMeasureSelectors (dc, (Loc loc (DataConP _ vs _ _ _ xts r))) = go <$> zip (r
     dty t         = foldr RAllT  (RFun dummySymbol r (fmap mempty t) mempty) vs
     n             = length xts
 
-
--- makePluggedSigs name embs tcEnv exports sigs
---   = Control.Monad.forM sigs $ \(x, t) -> do
---       let τ  = expandTypeSynonyms $ varType x
---       let r  = maybeTrue x name exports
---       z     <- plugHoles embs tcEnv x r τ t
---       return (x, z)
-
 makePluggedSigs name embs tcEnv exports sigs 
   = forM sigs $ \(x,t) -> do
       let τ = expandTypeSynonyms $ varType x
@@ -257,7 +237,7 @@ makeMeasureSelector x s dc n i = M {name = x, sort = s, eqns = [eqn]}
   where eqn   = Def x dc (mkx <$> [1 .. n]) (E (EVar $ mkx i)) 
         mkx j = symbol ("xx" ++ show j)
         
---- Refinement Type Aliases
+-- Refinement Type Aliases
 makeRTEnv specs
   = do forM_ rts $ \(mod, rta) -> setRTAlias (rtName rta) $ Left (mod, rta)
        forM_ pts $ \(mod, pta) -> setRPAlias (rtName pta) $ Left (mod, pta)
@@ -391,16 +371,7 @@ expandRTApp l s rta args r
     msg       = show err
     err       :: Error
     err       = ErrAliasApp (sourcePosSrcSpan l) (length args) (pprint $ rtName rta) (sourcePosSrcSpan $ rtPos rta) (length αs + length εs) 
-
-    -- JUNK msg = "Malformed type alias application at " ++ show l ++ "\n\t"
-    -- JUNK            ++ show (rtName rta) 
-    -- JUNK            ++ " defined at " ++ show (rtPos rta)
-    -- JUNK            ++ "\n\texpects " ++ show ()
-    -- JUNK            ++ " arguments but it is given " ++ show (length args)
-
-    -- JUNK Ex.throw $ errOther $ text 
-    -- JUNK                           $ "Cyclic Reftype Alias Definition: " ++ show (c:s)
-      
+     
 -- | exprArg converts a tyVar to an exprVar because parser cannot tell 
 -- HORRIBLE HACK To allow treating upperCase X as value variables X
 -- e.g. type Matrix a Row Col = List (List a Row) Col
@@ -449,14 +420,12 @@ expandRPApp l s rp es
                ++ " defined at " ++ show (rtPos rp)
                ++ "\n\texpects " ++ show (length $ rtVArgs rp)
                ++ " arguments but it is given " ++ show (length es)
---        msg = "expandRPApp: " ++ show (EApp (dummyLoc $ symbol $ rtName rp) es)
     in subst su $ rtBody rp
 
 
 makeQualifiers (mod,spec) = inModule mod mkQuals
   where
-    mkQuals = -- resolve dummyPos $ Ms.qualifiers spec
-              mapM (\q -> resolve (q_pos q) q) $ Ms.qualifiers spec
+    mkQuals = mapM (\q -> resolve (q_pos q) q) $ Ms.qualifiers spec
 
 
 makeClasses cfg vs (mod, spec) = inModule mod $ mapM mkClass $ Ms.classes spec
@@ -576,22 +545,6 @@ isSimpleType t     = null tvs && isNothing (splitFunTy_maybe tb) where (tvs, tb)
 -------------------------------------------------------------------------------
 
 -- This throws an exception if there is a mismatch
--- renameTyVars :: (Var, SpecType) -> (Var, SpecType)
--- renameTyVars (x, lt@(Loc l t))
---   = case mapTyVars' err τbody tbody of
---       Right tyvsmap -> let su = [(y, rTyVar x) | (x, y) <- tyvsmap]
---                            t' = subts su $ mkUnivs [] ps ls tbody
---                       in
---                           return (x, Loc l $ mkUnivs (rTyVar <$> αs) [] [] t')
---       Left _        -> Ex.throw err
---     where
---       -- tyvsmap          =     vmap $ execState (mapTyVars τbody tbody) initvmap 
---       (αs, τbody)         = splitForAllTys $ expandTypeSynonyms $ varType x
---       (as, ps, ls, tbody) = bkUniv t
---       err                 = errTypeMismatch x lt
-
-
-
 renameTyVars :: (Var, Located SpecType) -> BareM (Var, Located SpecType)
 renameTyVars (x, lt@(Loc l t)) 
   = do tyvsmap <- case runMapTyVars (mapTyVars τbody tbody) initvmap of
@@ -628,7 +581,6 @@ mapTyVars (FunTy τ τ') (RFun _ t t' _)
 mapTyVars (TyConApp _ τs) (RApp _ ts _ _) 
    = zipWithM_ mapTyVars τs ts
 mapTyVars (TyVarTy α) (RVar a _)      
---    = modify $ \s -> mapTyRVar α a s
    = do s  <- get
         s' <- mapTyRVar α a s
         put s'
@@ -651,7 +603,6 @@ mapTyVars (AppTy τ τ') (RAppTy t t' _)
 mapTyVars τ (RHole _)
   = return ()
 mapTyVars τ t
-  -- = Ex.throw =<< errmsg <$> get
   = throwError =<< errmsg <$> get
 
 mapTyRVar α a s@(MTVST αas err)
@@ -659,9 +610,6 @@ mapTyRVar α a s@(MTVST αas err)
       Just a' | a == a'   -> return s
               | otherwise -> throwError err
       Nothing             -> return $ MTVST ((α,a):αas) err
---      Just a' | a == a'   -> s
---              | otherwise -> Ex.throw err
---      Nothing             -> MTVST ((α,a):αas) err
 
 mkVarExpr v 
   | isFunVar v = EApp (varFunSymbol v) []
@@ -720,7 +668,6 @@ inModule m act = do
 
 withVArgs l vs act = do
   old <- gets rtEnv
---   mapM (mkExprAlias l . symbol . showpp) vs
   mapM_ (mkExprAlias l . symbol . showpp) vs
   res <- act
   modify $ \be -> be { rtEnv = old }
@@ -764,8 +711,7 @@ makeMeasureSpec' = mapFst (mapSnd uRType <$>) . Ms.dataConTypes . first (mapReft
 
 makeClassMeasureSpec (Ms.MSpec {..}) = tx <$> M.elems cmeasMap
   where
-    tx (M n s _) = (n, CM n (mapReft ur_reft s) -- [(t,m) | (IM n' t m) <- imeas, n == n']
-                   )
+    tx (M n s _) = (n, CM n (mapReft ur_reft s))
 
 makeTargetVars :: ModName -> [Var] -> [String] -> BareM [Var]
 makeTargetVars name vs ss
@@ -890,39 +836,6 @@ plugHoles tce tyi x f t (Loc l st)
     go t                st                 = throwError err
      where
        err = errOther $ text $ printf "plugHoles: unhandled case!\nt  = %s\nst = %s\n" (showpp t) (showpp st)
-
-
--- plugHoles tce tyi x f t (Loc l st) =
---   case mapTyVars' err (toType rt') st'' of
---     Left _        -> Ex.throw err
---     Right tyvsmap -> let su    = [(y, rTyVar x) | (x, y) <- tyvsmap]
---                          st''' = subts su st''
---                          ps'   = fmap (subts su') <$> ps
---                          su'   = [(y, RVar (rTyVar x) ()) | (x, y) <- tyvsmap] :: [(RTyVar, RSort)]
---                      in 
---                          Loc l $ mkArrow αs ps' (ls1 ++ ls2) cs' $ go rt' st'''
---   where
---     (αs, _, ls1, rt)  = bkUniv (ofType t :: SpecType)
---     (cs, rt')         = bkClass rt
---     (_, ps, ls2, st') = bkUniv st
---     (_, st'')         = bkClass st'
---     cs'               = [(dummySymbol, RCls c t) | (c,t) <- cs]
---     err               = ErrMismatch (sourcePosSrcSpan l) (pprint x) t st
--- 
---     go t                (RHole r)          = (addHoles t') { rt_reft = f r }
---       where
---         t'            = everywhere (mkT $ addRefs tce tyi) t
---         addHoles      = fmap (const $ f $ uReft ("v", [hole]))
---     go (RVar _ _)       v@(RVar _ _)       = v
---     go (RFun _ i o _)   (RFun x i' o' r)   = RFun x (go i i') (go o o') r
---     go (RAllT _ t)      (RAllT a t')       = RAllT a $ go t t'
---     go t                (RAllE b a t')     = RAllE b a $ go t t'
---     go t                (REx b x t')       = REx b x $ go t t'
---     go (RAppTy t1 t2 _) (RAppTy t1' t2' r) = RAppTy (go t1 t1') (go t2 t2') r
---     go (RApp _ t _ _)   (RApp c t' p r)    = RApp c (zipWith go t t') p r
---     go (RCls _ t)       (RCls c t')        = RCls c $ zipWith go t t'
---     go t                st                 = Ex.throw $ errOther $ text $ printf "plugHoles: unhandled case!\nt  = %s\nst = %s\n" (showpp t) (showpp st)
-
 
 addRefs :: TCEmb TyCon -> M.HashMap TyCon RTyCon -> SpecType -> SpecType
 addRefs tce tyi (RApp c ts _ r) = RApp c' ts ps r
