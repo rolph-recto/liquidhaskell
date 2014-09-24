@@ -10,6 +10,7 @@
 {-# LANGUAGE DeriveFunctor             #-}
 {-# LANGUAGE MultiParamTypeClasses     #-}
 {-# LANGUAGE OverloadedStrings         #-}
+{-# LANGUAGE ViewPatterns              #-}
 
 -- | This module defines the representation of Subtyping and WF Constraints, and 
 -- the code for syntax-directed constraint generation. 
@@ -37,7 +38,7 @@ import qualified TyCon   as TC
 import qualified DataCon as DC
 
 import TypeRep 
-import Class            (Class, className)
+import Class            (Class, className, classMethods, classTyVars)
 import Var
 import Id
 import Name            
@@ -49,6 +50,7 @@ import Control.Monad.State
 import Control.Applicative      ((<$>))
 import Control.Exception.Base
 
+import Data.Generics            (mkQ, everything)
 import Data.Monoid              (mconcat, mempty, mappend)
 import Data.Maybe               (fromJust, isJust, fromMaybe, catMaybes)
 import qualified Data.HashMap.Strict as M
@@ -286,12 +288,23 @@ setBind γ k
 
 
 isGeneric :: RTyVar -> SpecType -> Bool
-isGeneric α t =  all (\(c, α') -> (α'/=α) || isOrd c || isEq c ) (classConstrs t)
+isGeneric α t =  all (\(c, α') -> (α'/=α) || isGenericClass c α) (classConstrs t)
+              && not (isDictLikeTy $ toType t)
   where classConstrs t = [(c, α') | (c, ts) <- tyClasses t
                                   , t'      <- ts
                                   , α'      <- freeTyVars t']
-        isOrd          = (ordClassName ==) . className
-        isEq           = (eqClassName ==) . className
+
+isGenericClass :: Class -> RTyVar -> Bool
+isGenericClass c (RTV a)
+  | ordClassName == className c = True
+  | eqClassName  == className c = True
+  | numClassName == className c = False
+  | otherwise = all (generic . varType) (classMethods c)
+  where
+    exists a t = everything (||) (mkQ False (==a)) t
+    generic (splitFunTys -> (ts,t))
+      = not (exists a t)
+     && and [not (Type.isFunTy t) || not (exists a t) | t <- ts]
 
 
 -----------------------------------------------------------------
