@@ -1,4 +1,5 @@
 {-# LANGUAGE NoMonomorphismRestriction, FlexibleInstances, UndecidableInstances, TypeSynonymInstances, TupleSections, OverloadedStrings #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module Language.Haskell.Liquid.Parse
   (hsSpecificationP, lhsSpecificationP, specSpecificationP)

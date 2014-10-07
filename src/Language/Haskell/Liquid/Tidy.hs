@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleContexts #-}
 ---------------------------------------------------------------------
 -- | This module contains functions for cleaning up types before
 --   they are rendered, e.g. in error messages or annoations.

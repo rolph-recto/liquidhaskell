@@ -3,6 +3,7 @@
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE TypeSynonymInstances       #-}
 {-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE FlexibleContexts           #-}
 
 ---------------------------------------------------------------------------
 -- | This module contains the code that uses the inferred types to generate 
@@ -20,7 +21,7 @@ import           GHC                      ( SrcSpan (..)
                                           , srcSpanEndLine
                                           , RealSrcSpan (..))
 import           Var                      (Var (..))
-import           TypeRep                  (Prec(..))
+import           TypeRep                  (TyPrec(..))
 import           Text.PrettyPrint.HughesPJ hiding (first, second)
 import           GHC.Exts                 (groupWith, sortWith)
 

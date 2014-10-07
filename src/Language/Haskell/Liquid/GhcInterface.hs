@@ -1,5 +1,6 @@
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE TypeSynonymInstances      #-} 
+{-# LANGUAGE FlexibleContexts          #-}
 {-# LANGUAGE FlexibleInstances         #-}
 {-# LANGUAGE TupleSections             #-}
 {-# LANGUAGE DeriveDataTypeable        #-}
@@ -35,7 +36,6 @@ import DataCon
 import qualified TyCon as TC
 import HscMain
 import Module
-import Language.Haskell.Liquid.Desugar.HscMain (hscDesugarWithLoc) 
 import qualified Control.Exception as Ex
 
 import GHC.Paths (libdir)
@@ -163,6 +163,7 @@ updateDynFlags cfg
                   --     `gopt_set` Opt_Hpc
                       `gopt_set` Opt_ImplicitImportQualified
                       `gopt_set` Opt_PIC
+                      `gopt_set` Opt_Debug
        (df'',_,_) <- parseDynamicFlags df' (map noLoc $ ghcOptions cfg)
        setSessionDynFlags $ df'' -- {profAuto = ProfAutoAll}
 
@@ -197,7 +198,7 @@ getGhcModGuts1 fn = do
      Just modSummary -> do
        -- mod_guts <- modSummaryModGuts modSummary
        mod_p    <- parseModule modSummary
-       mod_guts <- coreModule <$> (desugarModuleWithLoc =<< typecheckModule (ignoreInline mod_p))
+       mod_guts <- coreModule <$> (desugarModule =<< typecheckModule (ignoreInline mod_p))
        let deriv = getDerivedDictionaries mod_guts mod_p
        return   $! (miModGuts (Just deriv) mod_guts)
      Nothing     -> exitWithPanic "Ghc Interface: Unable to get GhcModGuts"
@@ -266,7 +267,7 @@ desugarModuleWithLoc tcm = do
   let (tcg, _) = tm_internals_ tcm
   hsc_env <- getSession
   let hsc_env_tmp = hsc_env { hsc_dflags = ms_hspp_opts ms }
-  guts <- liftIO $ hscDesugarWithLoc hsc_env_tmp ms tcg
+  guts <- liftIO $ hscDesugar hsc_env_tmp ms tcg
   return $ DesugaredModule { dm_typechecked_module = tcm, dm_core_module = guts }
 
 --------------------------------------------------------------------------------

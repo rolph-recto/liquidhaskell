@@ -1,6 +1,7 @@
 {-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE NoMonomorphismRestriction  #-}
 {-# LANGUAGE TypeSynonymInstances       #-}  
+{-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE TupleSections              #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
@@ -8,6 +9,7 @@
 {-# LANGUAGE ParallelListComp           #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE ViewPatterns               #-}
+{-# LANGUAGE PatternGuards              #-}
 {-# LANGUAGE LambdaCase                 #-}
 
 -- | This module contains the functions that convert /from/ descriptions of 
@@ -1077,9 +1079,19 @@ lookupGhcClass       = lookupGhcThing "class" ftc
     ftc (ATyCon x)   = tyConClass_maybe x 
     ftc _            = Nothing
 
-lookupGhcDataCon dc  = case isTupleDC $ val dc of
-                         Just n  -> return $ tupleCon BoxedTuple n
-                         Nothing -> lookupGhcDataCon' dc 
+lookupGhcDataCon dc  
+  | Just n <- isTupleDC (val dc)
+  = return $ tupleCon BoxedTuple n
+  | val dc == "[]"
+  = return nilDataCon
+  | val dc == ":"
+  = return consDataCon
+  | otherwise
+  = lookupGhcDataCon' dc
+
+-- = case isTupleDC $ val dc of
+--                         Just n  -> return $ tupleCon BoxedTuple n
+--                         Nothing -> lookupGhcDataCon' dc 
 
 isTupleDC zs
   | "(," `isPrefixOfSym` zs

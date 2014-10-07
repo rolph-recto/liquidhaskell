@@ -174,13 +174,13 @@ ppSpine (RRTy _ _ _ _)   = text "RRTy"
 
 -- | From GHC: TypeRep 
 -- pprArrowChain p [a,b,c]  generates   a -> b -> c
-pprArrowChain :: Prec -> [Doc] -> Doc
+--pprArrowChain :: Prec -> [Doc] -> Doc
 pprArrowChain _ []         = empty
 pprArrowChain p (arg:args) = maybeParen p FunPrec $
                              sep [arg, sep (map (arrow <+>) args)]
 
 -- | From GHC: TypeRep 
-maybeParen :: Prec -> Prec -> Doc -> Doc
+--maybeParen :: Prec -> Prec -> Doc -> Doc
 maybeParen ctxt_prec inner_prec pretty
   | ctxt_prec < inner_prec = pretty
   | otherwise		       = parens pretty

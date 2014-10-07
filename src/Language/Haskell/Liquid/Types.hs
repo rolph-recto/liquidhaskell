@@ -729,7 +729,7 @@ class ( TyConable c
       ) => RefTypable p c tv r 
   where
     ppCls    :: p -> [RType p c tv r] -> Doc
-    ppRType  :: Prec -> RType p c tv r -> Doc 
+    ppRType  :: TyPrec -> RType p c tv r -> Doc 
 
 --------------------------------------------------------------------------
 -- | Values Related to Specifications ------------------------------------

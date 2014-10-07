@@ -16,7 +16,7 @@ module Language.Haskell.Liquid.GhcMisc where
 import           Debug.Trace
 
 import           Avail                        (availsToNameSet)
-import           CoreSyn                      hiding (Expr)
+import           CoreSyn                      hiding (Expr, sourceName)
 import           CostCentre
 import           FamInstEnv                   (FamInst)
 import           GHC                          hiding (L)
@@ -113,6 +113,7 @@ srcSpanTick m loc
 
 tickSrcSpan ::  Outputable a => Tickish a -> SrcSpan
 tickSrcSpan (ProfNote cc _ _) = cc_loc cc
+tickSrcSpan (SourceNote ss _) = RealSrcSpan ss
 tickSrcSpan z                 = noSrcSpan -- errorstar msg
 --   where msg = "tickSrcSpan: unhandled tick: " ++ showPpr z
 
