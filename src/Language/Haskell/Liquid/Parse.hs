@@ -7,27 +7,35 @@ module Language.Haskell.Liquid.Parse
   where
 
 import Control.Monad
-import Text.Parsec
-import Text.Parsec.Error (newErrorMessage, Message (..)) 
-import Text.Parsec.Pos   (newPos) 
+-- import Text.Parsec
+-- import Text.Parsec.Error (newErrorMessage, Message (..)) 
+-- import Text.Parsec.Pos   (newPos) 
 
-import qualified Text.Parsec.Token as Token
+-- import qualified Text.Parsec.Token as Token
+
+import Text.Trifecta hiding (Parser, symbol, whiteSpace)
+--import qualified Text.Trifecta as P
+import Text.Trifecta.Delta
+import Text.Parser.LookAhead
+
 import qualified Data.HashMap.Strict as M
 import qualified Data.HashSet        as S
 import Data.Monoid
 
-import Control.Applicative ((<$>), (<*), (<*>))
+import Control.Applicative ((<$>), (<*), (<*>), (<|>))
+import Control.Monad.State
+import qualified Data.ByteString.Char8 as B
 import Data.Char (isLower, isSpace, isAlpha)
 import Data.List (foldl', partition)
 
 import GHC (mkModuleName)
-import Text.PrettyPrint.HughesPJ    (text)
+--import Text.PrettyPrint.HughesPJ    (text)
 
 import Language.Preprocessor.Unlit (unlit)
 
 import Language.Fixpoint.Types hiding (Def, R)
 
-import Language.Haskell.Liquid.GhcMisc
+--import Language.Haskell.Liquid.GhcMisc
 import Language.Haskell.Liquid.Types
 import Language.Haskell.Liquid.RefType
 import Language.Haskell.Liquid.Variance 
@@ -35,11 +43,13 @@ import Language.Haskell.Liquid.Variance
 import qualified Language.Haskell.Liquid.Measure as Measure
 import Language.Fixpoint.Names (listConName, hpropConName, propConName, tupConName, headSym)
 import Language.Fixpoint.Misc hiding (dcolon, dot)
-import Language.Fixpoint.Parse hiding (angles)
+import Language.Fixpoint.Parse
 
 ----------------------------------------------------------------------------
 -- Top Level Parsing API ---------------------------------------------------
 ----------------------------------------------------------------------------
+
+type SourceName = FilePath
 
 -------------------------------------------------------------------------------
 hsSpecificationP :: SourceName -> String -> Either Error (ModName, Measure.BareSpec)
@@ -84,46 +94,52 @@ specificationP
        return $ mkSpec (ModName SpecImport $ mkModuleName $ symbolString name) xs
 
 ---------------------------------------------------------------------------
-parseWithError :: Parser a -> SourceName -> String -> Either Error a 
+--parseWithError :: Parser a -> SourceName -> String -> Either Error a 
 ---------------------------------------------------------------------------
-parseWithError parser f s
-  = case runParser (remainderP (whiteSpace >> parser)) 0 f s of
-      Left e            -> Left  $ parseErrorError f e
-      Right (r, "", _)  -> Right $ r
-      Right (_, rem, _) -> Left  $ parseErrorError f $ remParseError f s rem 
+-- parseWithError parser f s
+--   = case runParser (remainderP (whiteSpace >> parser)) 0 f s of
+--       Left e            -> Left  $ parseErrorError f e
+--       Right (r, "", _)  -> Right $ r
+--       Right (_, rem, _) -> Left  $ parseErrorError f $ remParseError f s rem
+parseWithError p f s
+  = case parseString (evalStateT (unParser p) 0) (Directed (B.pack f) 0 0 0 0) s of
+      Success a -> Right a
+      Failure e -> error $ show e
 
----------------------------------------------------------------------------
-parseErrorError     :: SourceName -> ParseError -> Error
----------------------------------------------------------------------------
-parseErrorError f e = ErrParse sp msg e
-  where 
-    pos             = errorPos e
-    sp              = sourcePosSrcSpan pos 
-    msg             = text $ "Error Parsing Specification from: " ++ f
+-- ---------------------------------------------------------------------------
+-- parseErrorError     :: SourceName -> ParseError -> Error
+-- ---------------------------------------------------------------------------
+-- parseErrorError f e = ErrParse sp msg e
+--   where 
+--     pos             = errorPos e
+--     sp              = sourcePosSrcSpan pos 
+--     msg             = text $ "Error Parsing Specification from: " ++ f
 
----------------------------------------------------------------------------
-remParseError       :: SourceName -> String -> String -> ParseError 
----------------------------------------------------------------------------
-remParseError f s r = newErrorMessage msg $ newPos f line col
-  where 
-    msg             = Message "Leftover while parsing"
-    (line, col)     = remLineCol s r 
+-- ---------------------------------------------------------------------------
+-- remParseError       :: SourceName -> String -> String -> ParseError 
+-- ---------------------------------------------------------------------------
+-- remParseError f s r = newErrorMessage msg $ newPos f line col
+--   where 
+--     msg             = Message "Leftover while parsing"
+--     (line, col)     = remLineCol s r 
 
-remLineCol          :: String -> String -> (Int, Int)
-remLineCol src rem = (line, col)
-  where 
-    line           = 1 + srcLine - remLine
-    srcLine        = length srcLines 
-    remLine        = length remLines
-    col            = srcCol - remCol  
-    srcCol         = length $ srcLines !! (line - 1) 
-    remCol         = length $ remLines !! 0 
-    srcLines       = lines  $ src
-    remLines       = lines  $ rem
-
-
+-- remLineCol          :: String -> String -> (Int, Int)
+-- remLineCol src rem = (line, col)
+--   where 
+--     line           = 1 + srcLine - remLine
+--     srcLine        = length srcLines 
+--     remLine        = length remLines
+--     col            = srcCol - remCol  
+--     srcCol         = length $ srcLines !! (line - 1) 
+--     remCol         = length $ remLines !! 0 
+--     srcLines       = lines  $ src
+--     remLines       = lines  $ rem
 
 
+
+many1 p = do x <- p
+             xs <- many p
+             return (x:xs)
 
 ----------------------------------------------------------------------------------
 -- Parse to Logic  ---------------------------------------------------------------
@@ -146,9 +162,9 @@ toLogicOneP
 -- Lexer Tokens ------------------------------------------------------------------
 ----------------------------------------------------------------------------------
 
-dot           = Token.dot           lexer
-angles        = Token.angles        lexer
-stringLiteral = Token.stringLiteral lexer
+-- dot           = Token.dot           lexer
+-- angles        = Token.angles        lexer
+-- stringLiteral = Token.stringLiteral lexer
 
 ----------------------------------------------------------------------------------
 -- BareTypes ---------------------------------------------------------------------
@@ -184,6 +200,13 @@ holeP       = reserved "_" >> spaces >> return (RHole $ uTop $ Reft ("VV", [hole
 holeRefP    = reserved "_" >> spaces >> return (RHole . uTop)
 refasHoleP  = refasP <|> (reserved "_" >> return [hole])
 
+-- FIXME: the use of `blanks = oneOf " \t"` here is a terrible and fragile hack
+-- to avoid parsing:
+--
+--   foo :: a -> b
+--   bar :: a
+--
+-- as `foo :: a -> b bar`..
 bbaseP :: Parser (Reft -> BareType)
 bbaseP 
   =  holeRefP
@@ -299,7 +322,7 @@ bPVar p _ xts  = PV p (PVProp τ) dummySymbol τxs
     τxs    = [ (τ, x, EVar x) | (x, τ) <- init xts ]
 
 predVarTypeP :: Parser [(Symbol, BSort)]
-predVarTypeP = bareTypeP >>= either parserFail return . mkPredVarType
+predVarTypeP = bareTypeP >>= either fail return . mkPredVarType
       
 mkPredVarType t
   | isOk      = Right $ zip xs ts
@@ -318,8 +341,8 @@ xyP lP sepP rP
 data ArrowSym = ArrowFun | ArrowPred
 
 arrowP
-  =   (reserved "->" >> return ArrowFun)
-  <|> (reserved "=>" >> return ArrowPred)
+  =   (reservedOp "->" >> return ArrowFun)
+  <|> (reservedOp "=>" >> return ArrowPred)
 
 bareFunP  
   = do b  <- try bindP <|> dummyBindP 
@@ -358,9 +381,9 @@ dummyP fm
   = fm `ap` return dummyReft 
 
 symsP
-  = do reserved "\\"
+  = do reservedOp "\\"
        ss <- sepBy symbolP spaces
-       reserved "->"
+       reservedOp "->"
        return $ (, dummyRSort) <$> ss
  <|> return []
 
@@ -542,37 +565,37 @@ mkSpec name xs         = (name,)
 
 specP :: Parser (Pspec BareType LocSymbol)
 specP 
-  = try (reservedToken "assume"    >> liftM Assm   tyBindP   )
-    <|> (reservedToken "assert"    >> liftM Asrt   tyBindP   )
-    <|> (reservedToken "Local"     >> liftM LAsrt  tyBindP   )
-    <|> try (reservedToken "measure"  >> liftM Meas   measureP  ) 
-    <|> (reservedToken "measure"   >> liftM HMeas  hmeasureP ) 
-    <|> (reservedToken "inline"   >> liftM Inline  inlineP ) 
-    <|> try (reservedToken "class"    >> reserved "measure" >> liftM CMeas cMeasureP)
-    <|> try (reservedToken "instance" >> reserved "measure" >> liftM IMeas iMeasureP)
-    <|> (reservedToken "instance"  >> liftM RInst  instanceP )
-    <|> (reservedToken "class"     >> liftM Class  classP    )
-    <|> (reservedToken "import"    >> liftM Impt   symbolP   )
-    <|> try (reservedToken "data" >> reserved "variance " >> liftM Varia datavarianceP)
-    <|> (reservedToken "data"      >> liftM DDecl  dataDeclP )
-    <|> (reservedToken "include"   >> liftM Incl   filePathP )
-    <|> (reservedToken "invariant" >> liftM Invt   invariantP)
-    <|> (reservedToken "using"     >> liftM IAlias invaliasP )
-    <|> (reservedToken "type"      >> liftM Alias  aliasP    )
-    <|> (reservedToken "predicate" >> liftM PAlias paliasP   )
-    <|> (reservedToken "expression">> liftM EAlias ealiasP   )
-    <|> (reservedToken "embed"     >> liftM Embed  embedP    )
-    <|> (reservedToken "qualif"    >> liftM Qualif qualifierP)
-    <|> (reservedToken "Decrease"  >> liftM Decr   decreaseP )
-    <|> (reservedToken "LAZYVAR"   >> liftM LVars  lazyVarP  )
-    <|> (reservedToken "Strict"    >> liftM Lazy   lazyVarP  )
-    <|> (reservedToken "Lazy"      >> liftM Lazy   lazyVarP  )
-    <|> (reservedToken "LIQUID"    >> liftM Pragma pragmaP   )
+  = try (reserved "assume"    >> liftM Assm   tyBindP   )
+    <|> (reserved "assert"    >> liftM Asrt   tyBindP   )
+    <|> (reserved "Local"     >> liftM LAsrt  tyBindP   )
+    <|> try (reserved "measure"  >> liftM Meas   measureP  ) 
+    <|> (reserved "measure"   >> liftM HMeas  hmeasureP ) 
+    <|> (reserved "inline"   >> liftM Inline  inlineP ) 
+    <|> try (reserved "class"    >> reserved "measure" >> liftM CMeas cMeasureP)
+    <|> try (reserved "instance" >> reserved "measure" >> liftM IMeas iMeasureP)
+    <|> (reserved "instance"  >> liftM RInst  instanceP )
+    <|> (reserved "class"     >> liftM Class  classP    )
+    <|> (reserved "import"    >> liftM Impt   symbolP   )
+    <|> try (reserved "data" >> reserved "variance" >> liftM Varia datavarianceP)
+    <|> (reserved "data"      >> liftM DDecl  dataDeclP )
+    <|> (reserved "include"   >> liftM Incl   filePathP )
+    <|> (reserved "invariant" >> liftM Invt   invariantP)
+    <|> (reserved "using"     >> liftM IAlias invaliasP )
+    <|> (reserved "type"      >> liftM Alias  aliasP    )
+    <|> (reserved "predicate" >> liftM PAlias paliasP   )
+    <|> (reserved "expression">> liftM EAlias ealiasP   )
+    <|> (reserved "embed"     >> liftM Embed  embedP    )
+    <|> (reserved "qualif"    >> liftM Qualif qualifierP)
+    <|> (reserved "Decrease"  >> liftM Decr   decreaseP )
+    <|> (reserved "LAZYVAR"   >> liftM LVars  lazyVarP  )
+    <|> (reserved "Strict"    >> liftM Lazy   lazyVarP  )
+    <|> (reserved "Lazy"      >> liftM Lazy   lazyVarP  )
+    <|> (reserved "LIQUID"    >> liftM Pragma pragmaP   )
     <|> ({- DEFAULT -}           liftM Asrts  tyBindsP  )
 
-reservedToken str = try(string str >> spaces1) 
+--reservedToken str = try(string str >> spaces1) 
 
-spaces1 = satisfy isSpace >> spaces
+--spaces1 = satisfy isSpace >> spaces
 
 pragmaP :: Parser (Located String)
 pragmaP = locParserP stringLiteral
@@ -617,7 +640,7 @@ termBareTypeP
 
 termTypeP 
   = do t <- genBareTypeP
-       reserved "/"
+       reservedOp "/"
        es <- brackets $ sepBy exprP comma
        return (t, Just es)
 
@@ -701,7 +724,7 @@ classP
 rawBodyP 
   = braces $ do
       v <- symbolP 
-      reserved "|"
+      reservedOp "|"
       p <- predP <* spaces
       return $ R v p
 

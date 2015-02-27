@@ -142,10 +142,12 @@ Library
                 , hscolour
                 , mtl
                 , parsec
+                , parsers
                 , pretty
                 , process
                 , syb
                 , text
+                , trifecta
                 , intern
                 , vector
                 , hashable
