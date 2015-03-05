@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveFoldable            #-}
+{-# LANGUAGE DeriveTraversable         #-}
 {-# LANGUAGE StandaloneDeriving        #-}
 {-# LANGUAGE ScopedTypeVariables       #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
@@ -39,13 +41,15 @@ import Control.Monad.State
 import Control.Applicative      ((<$>))
 
 import Data.Monoid              (mconcat, mempty, mappend)
-import Data.Maybe               (fromMaybe, catMaybes)
+import Data.Maybe               (fromMaybe, catMaybes, fromJust, isJust)
 import qualified Data.HashMap.Strict as M
 import qualified Data.HashSet        as S
 import qualified Data.List           as L
 import qualified Data.Text           as T
 import Data.Bifunctor
 import Data.List (foldl')
+import qualified Data.Foldable    as F
+import qualified Data.Traversable as T
 
 import Text.Printf
 
@@ -56,19 +60,22 @@ import Language.Haskell.Liquid.Fresh
 
 import qualified Language.Fixpoint.Types            as F
 
+import Language.Haskell.Liquid.Dictionaries
 import Language.Haskell.Liquid.Variance
 import Language.Haskell.Liquid.Types            hiding (binds, Loc, loc, freeTyVars, Def)
 import Language.Haskell.Liquid.Strata
-import Language.Haskell.Liquid.GhcInterface
 import Language.Haskell.Liquid.RefType
+import Language.Haskell.Liquid.Visitors
 import Language.Haskell.Liquid.PredType         hiding (freeTyVars)          
-import Language.Haskell.Liquid.GhcMisc          (isInternal, collectArguments, tickSrcSpan, hasBaseTypeVar, showPpr)
+import Language.Haskell.Liquid.GhcMisc          ( isInternal, collectArguments, tickSrcSpan
+                                                , hasBaseTypeVar, showPpr)
 import Language.Haskell.Liquid.Misc
 import Language.Fixpoint.Misc
 import Language.Haskell.Liquid.Literals
 import Control.DeepSeq
 
 import Language.Haskell.Liquid.Constraint.Types
+import Language.Haskell.Liquid.Constraint.Constraint
 
 -----------------------------------------------------------------------
 ------------- Constraint Generation: Toplevel -------------------------
@@ -168,6 +175,7 @@ measEnv sp xts cbs lts asms hs
         , renv  = fromListREnv $ second val <$> meas sp
         , syenv = F.fromListSEnv $ freeSyms sp
         , fenv  = initFEnv $ lts ++ (second (rTypeSort tce . val) <$> meas sp)
+        , denv  = dicts sp
         , recs  = S.empty 
         , invs  = mkRTyConInv    $ invariants sp
         , ial   = mkRTyConIAl    $ ialiases   sp
@@ -179,6 +187,7 @@ measEnv sp xts cbs lts asms hs
         , trec  = Nothing
         , lcb   = M.empty
         , holes = fromListHEnv hs
+        , lcs   = mempty
         } 
     where
       tce = tcEmbeds sp
@@ -328,11 +337,11 @@ splitS (SubC γ (RAllE _ _ t1) t2)
 splitS (SubC γ t1 (RAllE _ _ t2))
   = splitS (SubC γ t1 t2)
 
-splitS (SubC γ (RRTy e r o t1) t2) 
-  = do γ' <- foldM (\γ (x, t) -> γ `addSEnv` ("splitS", x,t)) γ e 
-       c1 <- splitS (SubR γ' o r)
-       c2 <- splitS (SubC γ t1 t2)
-       return $ c1 ++ c2
+splitS (SubC γ (RRTy _ _ _ t1) t2) 
+  = splitS (SubC γ t1 t2)
+
+splitS (SubC γ t1 (RRTy _ _ _ t2)) 
+  = splitS (SubC γ t1 t2)
 
 splitS (SubC γ t1@(RFun x1 r1 r1' _) t2@(RFun x2 r2 r2' _)) 
   =  do cs       <- bsplitS t1 t2 
@@ -447,6 +456,20 @@ splitC (SubC γ t1 (RAllE x tx t2))
   = do γ' <- (γ, "addExBind 2") += (x, forallExprRefType γ tx)
        splitC (SubC γ' t1 t2)
 
+splitC (SubC γ (RRTy [(_, t)] _ OCons t1) t2)
+  = do γ' <- foldM (\γ (x, t) -> γ `addSEnv` ("splitS", x,t)) γ (zip xs ts)
+       c1 <- splitC (SubC γ' t1' t2')
+       c2 <- splitC (SubC γ  t1  t2 )
+       return $ c1 ++ c2
+  where
+    trep = toRTypeRep t
+    xs   = init $ ty_binds trep
+    ts   = init $ ty_args  trep
+    t2'  = ty_res   trep
+    t1'  = last $ ty_args trep
+
+
+
 splitC (SubC γ (RRTy e r o t1) t2) 
   = do γ' <- foldM (\γ (x, t) -> γ `addSEnv` ("splitS", x,t)) γ e 
        c1 <- splitC (SubR γ' o  r )
@@ -531,7 +554,14 @@ rsplitsCWithVariance γ t1s t2s variants
 
 
 bsplitC γ t1 t2
-  = checkStratum γ t1 t2 >> pruneRefs <$> get >>= return . bsplitC' γ t1 t2
+  = do checkStratum γ t1 t2 
+       pflag <- pruneRefs <$> get
+       γ' <- γ ++= ("bsplitC", v, t1) 
+       let r = (mempty :: UReft F.Reft){ur_reft = F.Reft (F.dummySymbol,  [F.RConc $ constraintToLogic γ' (lcs γ')])}
+       let t1' = addRTyConInv (invs γ')  t1 `strengthen` r
+       return $ bsplitC' γ' t1' t2 pflag
+  where
+    F.Reft(v, _) = ur_reft (fromMaybe mempty (stripRTypeBase t1))
 
 checkStratum γ t1 t2
   | s1 <:= s2 = return ()
@@ -541,9 +571,9 @@ checkStratum γ t1 t2
 
 bsplitC' γ t1 t2 pflag
   | F.isFunctionSortedReft r1' && F.isNonTrivialSortedReft r2'
-  = F.subC γ' F.PTrue (r1' {F.sr_reft = mempty}) r2' Nothing tag ci
+  = F.subC γ' grd (r1' {F.sr_reft = mempty}) r2' Nothing tag ci
   | F.isNonTrivialSortedReft r2'
-  = F.subC γ' F.PTrue r1'  r2' Nothing tag ci
+  = F.subC γ' grd r1'  r2' Nothing tag ci
   | otherwise
   = []
   where 
@@ -555,6 +585,7 @@ bsplitC' γ t1 t2 pflag
     err    = Just $ ErrSubType src (text "subtype") g t1 t2 
     src    = loc γ
     REnv g = renv γ 
+    grd    = F.PTrue
 
 
 
@@ -629,6 +660,11 @@ extendEnvWithVV γ t
 
 {- see tests/pos/polyfun for why you need everything in fixenv -} 
 addCGEnv :: (SpecType -> SpecType) -> CGEnv -> (String, F.Symbol, SpecType) -> CG CGEnv
+addCGEnv tx γ (msg, x, RAllE y tyy tyx)
+  = do y' <- fresh 
+       γ' <- addCGEnv tx γ (msg, y', tyy)
+       addCGEnv tx γ' (msg, x, tyx `F.subst1` (y, F.EVar y'))
+
 addCGEnv tx γ (_, x, t') 
   = do idx   <- fresh
        let t  = tx $ normalize {-x-} idx t'  
@@ -734,9 +770,13 @@ addPost γ (RRTy e r OInv t)
   = do γ' <- foldM (\γ (x, t) -> γ `addSEnv` ("addPost", x,t)) γ e 
        addC (SubR γ' OInv r) "precondition" >> return t
 
-addPost γ (RRTy e r o t) 
+addPost γ (RRTy e r OTerm t) 
   = do γ' <- foldM (\γ (x, t) -> γ ++= ("addPost", x,t)) γ e 
-       addC (SubR γ' o r) "precondition" >> return t
+       addC (SubR γ' OTerm r) "precondition" >> return t
+
+addPost _ (RRTy _ _ OCons t) 
+  = return t
+
 addPost _ t  
   = return t
 
@@ -862,13 +902,25 @@ instance Freshable CG Integer where
 ----------------------- TERMINATION TYPE --------------------------------------
 -------------------------------------------------------------------------------
 
-makeDecrIndex :: (Var, SpecType)-> CG [Int]
-makeDecrIndex (x, t) 
+makeDecrIndex :: (Var, Template SpecType)-> CG [Int]
+makeDecrIndex (x, Assumed t)
+  = do dindex <- makeDecrIndexTy x t
+       case dindex of
+         Left _  -> return []
+         Right i -> return i
+makeDecrIndex (x, Asserted t)
+  = do dindex <- makeDecrIndexTy x t
+       case dindex of
+         Left msg -> addWarning msg >> return []
+         Right i  -> return i
+makeDecrIndex _ = return []
+
+makeDecrIndexTy x t
   = do spDecr <- specDecr <$> get
        hint   <- checkHint' (L.lookup x $ spDecr)
        case dindex of
-         Nothing -> addWarning msg >> return []
-         Just i  -> return $ fromMaybe [i] hint
+         Nothing -> return $ Left msg -- addWarning msg >> return []
+         Just i  -> return $ Right $ fromMaybe [i] hint
     where
        ts         = ty_args $ toRTypeRep t
        checkHint' = checkHint x ts isDecreasing
@@ -890,7 +942,7 @@ checkIndex (x, vs, t, index)
        mapM  (safeLogIndex msg  ts) index
     where
        loc   = getSrcSpan x
-       ts    = ty_args $ toRTypeRep t
+       ts    = ty_args $ toRTypeRep $ unTemplate t
        msg'  = ErrTermin [x] loc (text $ "No decreasing argument on " ++ (showPpr x) ++ " with " ++ (showPpr vs))
        msg   = ErrTermin [x] loc (text "No decreasing parameter")
 
@@ -971,22 +1023,22 @@ consCBSizedTys γ xes
        let cmakeFinType = if sflag then makeFinType else id
        let cmakeFinTy   = if sflag then makeFinTy   else snd
        let xets = mapThd3 (fmap cmakeFinType) <$> xets''
-       ts'      <- mapM refreshArgs $ (fromAsserted . thd3 <$> xets)
+       ts'      <- mapM (T.mapM refreshArgs) $ (thd3 <$> xets)
        let vs    = zipWith collectArgs ts' es
        is       <- mapM makeDecrIndex (zip xs ts') >>= checkSameLens
        let ts = cmakeFinTy  <$> zip is ts'
-       let xeets = (\vis -> [(vis, x) | x <- zip3 xs is ts]) <$> (zip vs is)
+       let xeets = (\vis -> [(vis, x) | x <- zip3 xs is $ map unTemplate ts]) <$> (zip vs is)
        (L.transpose <$> mapM checkIndex (zip4 xs vs ts is)) >>= checkEqTypes
        let rts   = (recType <$>) <$> xeets
-       let xts   = zip xs (Asserted <$> ts)
+       let xts   = zip xs ts
        γ'       <- foldM extender γ xts
        let γs    = [γ' `withTRec` (zip xs rts') | rts' <- rts]
-       let xets' = zip3 xs es (Asserted <$> ts)
+       let xets' = zip3 xs es ts
        mapM_ (uncurry $ consBind True) (zip γs xets')
        return γ'
   where
        (xs, es) = unzip xes
-       collectArgs    = collectArguments . length . ty_binds . toRTypeRep
+       collectArgs    = collectArguments . length . ty_binds . toRTypeRep . unTemplate
        checkEqTypes :: [[Maybe SpecType]] -> CG [[SpecType]]
        checkEqTypes x = mapM (checkAll err1 toRSort) (catMaybes <$> x)
        checkSameLens  = checkAll err2 length
@@ -1019,8 +1071,11 @@ consCBWithExprs γ xes
                    | otherwise              = Nothing
         err      = "Constant: consCBWithExprs"
 
-makeFinTy (ns, t) = fromRTypeRep $ trep {ty_args = args'}
-  where trep = toRTypeRep t
+makeFinTy (ns, t) = fmap go t
+  where
+    go t = fromRTypeRep $ trep {ty_args = args'}
+      where
+        trep = toRTypeRep t
         args' = mapNs ns makeFinType $ ty_args trep
 
 
@@ -1077,6 +1132,28 @@ consCB _ _ γ (Rec xes)
        mapM_ (consBind True γ') xets
        return γ' 
 
+-- | NV: Dictionaries are not checked, because 
+-- | class methods' preconditions are not satisfied
+consCB _ _ γ (NonRec x _) | isDictionary x
+  = do t  <- trueTy (varType x)
+       extender γ (x, Assumed t)
+  where     
+    isDictionary = isJust . dlookup (denv γ)
+
+
+consCB _ _ γ (NonRec x (App (Var w) (Type τ))) | isDictionary w
+  = do t      <- trueTy τ
+       addW    $ WfC γ t
+       let xts = dmap (f t) $ safeFromJust (show w ++ "Not a dictionary"  ) $ dlookup (denv γ) w
+       let  γ' = γ{denv = dinsert (denv γ) x xts }
+       t      <- trueTy (varType x)
+       extender γ' (x, Assumed t)
+  where f t' (RAllT α te) = subsTyVar_meet' (α, t') te
+        f _ _ = error "consCB on Dictionary: this should not happen"
+        isDictionary = isJust . dlookup (denv γ)
+
+
+
 consCB _ _ γ (NonRec x e)
   = do to  <- varTemplate γ (x, Nothing) 
        to' <- consBind False γ (x, e, to) >>= (addPostTemplate γ)
@@ -1128,17 +1205,17 @@ extender γ _               = return γ
 
 addBinders γ0 x' cbs   = foldM (++=) (γ0 -= x') [("addBinders", x, t) | (x, t) <- cbs]
 
-data Template a = Asserted a | Assumed a | Unknown deriving (Functor)
+data Template a = Asserted a | Assumed a | Unknown deriving (Functor, F.Foldable, T.Traversable)
 
 deriving instance (Show a) => (Show (Template a))
 
+unTemplate (Asserted t) = t
+unTemplate (Assumed t) = t
+unTemplate _ = errorstar "Constraint.Generate.unTemplate called on `Unknown`"
 
 addPostTemplate γ (Asserted t) = Asserted <$> addPost γ t
 addPostTemplate γ (Assumed  t) = Assumed  <$> addPost γ t
 addPostTemplate _ Unknown      = return Unknown 
-
-fromAsserted (Asserted t) = t
-fromAsserted _            = errorstar "Constraint.Generate.fromAsserted called on invalid inputs"
 
 safeFromAsserted _ (Asserted t) = t
 safeFromAsserted msg _ = errorstar $ "safeFromAsserted:" ++ msg 
@@ -1171,6 +1248,18 @@ cconsE γ e@(Let b@(NonRec x _) ee) t
   where
        isDefLazyVar = L.isPrefixOf "fail" . showPpr
 
+cconsE γ e (RAllP p t)
+  = cconsE γ' e t''
+  where
+    t'         = replacePredsWithRefs su <$> t
+    su         = (uPVar p, pVartoRConc p)
+    (css, t'') = splitConstraints t'
+    γ'         = foldl (flip addConstraints) γ css 
+
+
+-- cconsE γ e (RRTy [(_, cs)] _ OCons t)
+--   = cconsE (addConstraints cs γ) e t
+
 cconsE γ (Let b e) t    
   = do γ'  <- consCBLet γ b
        cconsE γ' e t 
@@ -1197,18 +1286,16 @@ cconsE γ e@(Cast e' _) t
   = do t' <- castTy γ (exprType e) e'
        addC (SubC γ t' t) ("cconsE Cast" ++ showPpr e) 
 
-cconsE γ e (RAllP p t)
-  = cconsE γ e t'
-  where
-    t' = replacePredsWithRefs su <$> t
-    su = (uPVar p, pVartoRConc p)
-
 cconsE γ e t
   = do te  <- consE γ e
        te' <- instantiatePreds γ e te >>= addPost γ
        addC (SubC γ te' t) ("cconsE" ++ showPpr e)
 
 
+splitConstraints (RRTy [(_, cs)] _ OCons t) 
+  = let (css, t') = splitConstraints t in (cs:css, t')
+splitConstraints t                       
+  = ([], t) 
 -------------------------------------------------------------------
 -- | @instantiatePreds@ peels away the universally quantified @PVars@
 --   of a @RType@, generates fresh @Ref@ for them and substitutes them
@@ -1265,11 +1352,37 @@ consE γ e'@(App e (Type τ))
        t'         <- refreshVV t
        instantiatePreds γ e' $ subsTyVar_meet' (α, t') te
 
+consE γ e'@(App e a) | isDictionary a               
+  = if isJust tt 
+      then return $ fromJust tt
+      else do ([], πs, ls, te) <- bkUniv <$> consE γ e
+              te0              <- instantiatePreds γ e' $ foldr RAllP te πs 
+              te'              <- instantiateStrata ls te0
+              (γ', te''')      <- dropExists γ te'
+              te''             <- dropConstraints γ te'''
+              updateLocA πs (exprLoc e) te'' 
+              let RFun x tx t _ = checkFun ("Non-fun App with caller ", e') te''
+              pushConsBind      $ cconsE γ' a tx 
+              addPost γ'        $ maybe (checkUnbound γ' e' x t) (F.subst1 t . (x,)) (argExpr γ a)
+  where
+    grepfunname (App x (Type _)) = grepfunname x
+    grepfunname (Var x)          = x
+    grepfunname e                = errorstar $ "grepfunname on \t" ++ showPpr e  
+    mdict w                      = case w of 
+                                     Var x    -> case dlookup (denv γ) x of {Just _ -> Just x; Nothing -> Nothing}    
+                                     Tick _ e -> mdict e
+                                     _        -> Nothing    
+    isDictionary _               = isJust (mdict a)
+    d = fromJust (mdict a)
+    dinfo = dlookup (denv γ) d
+    tt = dhasinfo dinfo $ grepfunname e
+
 consE γ e'@(App e a)               
   = do ([], πs, ls, te) <- bkUniv <$> consE γ e
        te0              <- instantiatePreds γ e' $ foldr RAllP te πs 
        te'              <- instantiateStrata ls te0
-       (γ', te'')       <- dropExists γ te'
+       (γ', te''')      <- dropExists γ te'
+       te''             <- dropConstraints γ te'''
        updateLocA πs (exprLoc e) te'' 
        let RFun x tx t _ = checkFun ("Non-fun App with caller ", e') te''
        pushConsBind      $ cconsE γ' a tx 
@@ -1318,8 +1431,8 @@ consE γ e@(Cast e' _)
 consE _ e@(Coercion _)
    = trueTy $ exprType e
 
-consE _ e	    
-  = errorstar $ "consE cannot handle " ++ showPpr e 
+consE _ e@(Type t)     
+  = errorstar $ "consE cannot handle type" ++ showPpr (e, t) 
 
 castTy _ τ (Var x)
   = do t <- trueTy τ 
@@ -1357,11 +1470,28 @@ cconsFreshE kvkind γ e
        return t
 
 checkUnbound γ e x t 
-  | x `notElem` (F.syms t) = t
-  | otherwise              = errorstar $ "consE: cannot handle App " ++ showPpr e ++ " at " ++ showPpr (loc γ)
+  | x `notElem` (F.syms t) 
+  = t
+  | otherwise              
+  = errorstar $ "checkUnbound: " ++ show x ++ " is elem of syms of " ++ show t
+                 ++ "\nIn\t"  ++ showPpr e ++ " at " ++ showPpr (loc γ)
 
 dropExists γ (REx x tx t) = liftM (, t) $ (γ, "dropExists") += (x, tx)
 dropExists γ t            = return (γ, t)
+
+dropConstraints :: CGEnv -> SpecType -> CG SpecType
+dropConstraints γ (RRTy [(_, ct)] _ OCons t) 
+  = do γ' <- foldM (\γ (x, t) -> γ `addSEnv` ("splitS", x,t)) γ (zip xs ts)
+       addC (SubC  γ' t1 t2)  "dropConstraints"
+       dropConstraints γ t
+  where
+    trep = toRTypeRep ct
+    xs   = init $ ty_binds trep
+    ts   = init $ ty_args  trep
+    t2   = ty_res   trep
+    t1   = last $ ty_args trep
+
+dropConstraints _ t = return t
 
 -------------------------------------------------------------------------------------
 cconsCase :: CGEnv -> Var -> SpecType -> [AltCon] -> (AltCon, [Var], CoreExpr) -> CG ()
@@ -1456,14 +1586,8 @@ instantiatePvs = foldl' go
   where go (RAllP p tbody) r = replacePreds "instantiatePv" tbody [(p, r)]
         go _ _               = errorstar "Constraint.instanctiatePv" 
 
-instance Show CoreExpr where
-  show = showPpr
-
 checkTyCon _ t@(RApp _ _ _ _) = t
 checkTyCon x t                = checkErr x t --errorstar $ showPpr x ++ "type: " ++ showPpr t
-
--- checkRPred _ t@(RAll _ _)     = t
--- checkRPred x t                = checkErr x t
 
 checkFun _ t@(RFun _ _ _ _)   = t
 checkFun x t                  = checkErr x t
@@ -1532,7 +1656,7 @@ subsTyVar_meet' (α, t) = subsTyVar_meet (α, toRSort t, t)
 -----------------------------------------------------------------------
 
 instance NFData CGEnv where
-  rnf (CGE x1 x2 x3 x5 x6 x7 x8 x9 _ _ x10 _ _ _ _)
+  rnf (CGE x1 x2 x3 _ x5 x6 x7 x8 x9 _ _ x10 _ _ _ _ _)
     = x1 `seq` rnf x2 `seq` seq x3 `seq` rnf x5 `seq` 
       rnf x6  `seq` x7 `seq` rnf x8 `seq` rnf x9 `seq` rnf x10
 
@@ -1601,9 +1725,6 @@ forallExprReftLookup γ x = snap <$> F.lookupSEnv x (syenv γ)
   where 
     snap                 = mapThd3 ignoreOblig . bkArrow . fourth4 . bkUniv . (γ ?=) . F.symbol
 
-grapBindsWithType tx γ 
-  = fst <$> toListREnv (filterREnv ((== toRSort tx) . toRSort) (renv γ))
-
 splitExistsCases z xs tx
   = fmap $ fmap (exrefAddEq z xs tx)
 
@@ -1666,19 +1787,5 @@ extendγ γ xts
   = foldr (\(x,t) m -> M.insert x t m) γ xts
 
 
----------------------------------------------------------------
------ Refinement Type Environments ----------------------------
----------------------------------------------------------------
-
 instance NFData REnv where
   rnf (REnv _) = () -- rnf m
-
-toListREnv (REnv env)     = M.toList env
-filterREnv f (REnv env)   = REnv $ M.filter f env
-fromListREnv              = REnv . M.fromList
-deleteREnv x (REnv env)   = REnv (M.delete x env)
-insertREnv x y (REnv env) = REnv (M.insert x y env)
-lookupREnv x (REnv env)   = M.lookup x env
-memberREnv x (REnv env)   = M.member x env
-
-

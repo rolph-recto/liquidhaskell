@@ -1,5 +1,5 @@
 Name:                liquidhaskell
-Version:             0.2.1.0
+Version:             0.3.1.0
 Copyright:           2010-15 Ranjit Jhala, University of California, San Diego.
 build-type:          Simple
 Synopsis:            Liquid Types for Haskell 
@@ -33,12 +33,14 @@ data-files: include/*.hquals
           , include/Language/Haskell/Liquid/*.pred
           , include/System/*.spec
           , syntax/liquid.css
-          , syntax/*.el
-          , syntax/*.vim
 
 Source-Repository head
   Type:        git
   Location:    https://github.com/ucsd-progsys/liquidhaskell/
+
+Flag devel
+  Description: turn on stricter error reporting for development
+  Default:     True
 
 Executable liquid
   default-language: Haskell98
@@ -68,7 +70,7 @@ Executable liquid
                , syb
                , text
                , vector
-               , liquid-fixpoint >= 0.2.1.0
+               , liquid-fixpoint
                , hashable
                , unordered-containers
                , aeson
@@ -77,7 +79,9 @@ Executable liquid
                , liquidhaskell
 
   Main-is: Liquid.hs
-  --ghc-options: -O -W
+  ghc-options: -W
+  if flag(devel)
+    ghc-options: -Werror
   Default-Extensions: PatternGuards
 
 -- Executable liquid-count-binders
@@ -146,7 +150,7 @@ Library
                 , vector
                 , hashable
                 , unordered-containers
-                , liquid-fixpoint >= 0.2.1.0
+                , liquid-fixpoint >= 0.2.3.0
                 , aeson
                 , bytestring
                 , fingertree
@@ -158,6 +162,7 @@ Library
                     Language.Haskell.Liquid.List, 
                     Language.Haskell.Liquid.PrettyPrint, 
                     Language.Haskell.Liquid.Bare,
+                    Language.Haskell.Liquid.Constraint.Constraint, 
                     Language.Haskell.Liquid.Constraint.Types, 
                     Language.Haskell.Liquid.Constraint.Generate, 
                     Language.Haskell.Liquid.Constraint.ToFixpoint, 
@@ -179,15 +184,36 @@ Library
                     Language.Haskell.Liquid.Misc, 
                     Language.Haskell.Liquid.CoreToLogic,
                     Language.Haskell.Liquid.Variance,
+                    Language.Haskell.Liquid.Dictionaries,
                     Language.Haskell.Liquid.Qualifier, 
                     Language.Haskell.Liquid.TransformRec, 
                     Language.Haskell.Liquid.Tidy, 
                     Language.Haskell.Liquid.Types,
+                    Language.Haskell.Liquid.Simplify,
                     Language.Haskell.Liquid.Literals,
                     Language.Haskell.Liquid.Strata,
                     Language.Haskell.Liquid.Fresh,
+                    Language.Haskell.Liquid.Visitors,
                     Language.Haskell.Liquid.WiredIn,
                     Paths_liquidhaskell,
+
+                    -- FIXME: These shouldn't really be exposed, but the linker complains otherwise...
+                    Language.Haskell.Liquid.Bare.RefToLogic
+                    Language.Haskell.Liquid.Bare.Check
+                    Language.Haskell.Liquid.Bare.DataType
+                    Language.Haskell.Liquid.Bare.Env
+                    Language.Haskell.Liquid.Bare.Expand
+                    Language.Haskell.Liquid.Bare.Existential
+                    Language.Haskell.Liquid.Bare.GhcSpec
+                    Language.Haskell.Liquid.Bare.Lookup
+                    Language.Haskell.Liquid.Bare.Measure
+                    Language.Haskell.Liquid.Bare.Misc
+                    Language.Haskell.Liquid.Bare.OfType
+                    Language.Haskell.Liquid.Bare.Plugged
+                    Language.Haskell.Liquid.Bare.Resolve
+                    Language.Haskell.Liquid.Bare.RTEnv
+                    Language.Haskell.Liquid.Bare.SymSort
+                    Language.Haskell.Liquid.Bare.Spec
 
                     --NOTE: these need to be exposed so GHC generates .dyn_o files for them..
                     Language.Haskell.Liquid.Desugar.Desugar,
@@ -205,8 +231,9 @@ Library
                     Language.Haskell.Liquid.Desugar.DsBinds,
                     Language.Haskell.Liquid.Desugar.DsGRHSs,
                     Language.Haskell.Liquid.Desugar.HscMain
-   --ghc-options: -O -W
-   ghc-options: -W -Werror
+   ghc-options: -W
+   if flag(devel)
+     ghc-options: -Werror
    ghc-prof-options: -fprof-auto
    Default-Extensions: PatternGuards
 

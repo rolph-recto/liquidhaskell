@@ -1,16 +1,17 @@
-{-# LANGUAGE StandaloneDeriving    #-}
-{-# LANGUAGE DeriveDataTypeable    #-}
-{-# LANGUAGE DeriveFunctor         #-}
-{-# LANGUAGE DeriveGeneric         #-}
-{-# LANGUAGE DeriveFoldable        #-}
-{-# LANGUAGE DeriveTraversable     #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE TypeSynonymInstances  #-}
-{-# LANGUAGE FlexibleInstances     #-}
-{-# LANGUAGE FlexibleContexts      #-} 
-{-# LANGUAGE OverlappingInstances  #-}
-{-# LANGUAGE ViewPatterns          #-}
-{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE StandaloneDeriving         #-}
+{-# LANGUAGE DeriveDataTypeable         #-}
+{-# LANGUAGE DeriveFunctor              #-}
+{-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE DeriveFoldable             #-}
+{-# LANGUAGE DeriveTraversable          #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE TypeSynonymInstances       #-}
+{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE FlexibleContexts           #-} 
+{-# LANGUAGE OverlappingInstances       #-}
+{-# LANGUAGE ViewPatterns               #-}
+{-# LANGUAGE OverloadedStrings          #-}
 
 -- | This module should contain all the global type definitions and basic instances.
 
@@ -139,7 +140,6 @@ module Language.Haskell.Liquid.Types (
 
   -- * Refinement Type Aliases
   , RTEnv (..)
-  , RTBareOrSpec
   , mapRT, mapRP, mapRE
 
   -- * Final Result
@@ -183,7 +183,10 @@ module Language.Haskell.Liquid.Types (
   , makeDivType, makeFinType
 
   -- * CoreToLogic
-  , LogicMap, toLogicMap, eAppWithMap
+  , LogicMap, toLogicMap, eAppWithMap, LMap(..)
+
+  -- * Refined Instances
+  , RDEnv, DEnv(..), RInstance(..)
 
   )
   where
@@ -191,7 +194,6 @@ module Language.Haskell.Liquid.Types (
 import SrcLoc                                   (noSrcSpan, SrcSpan)
 import TyCon 
 import DataCon
-import Name                                     (getName)
 import NameSet
 import Module                                   (moduleNameFS)
 import TypeRep                          hiding  (maybeParen, pprArrowChain)  
@@ -228,7 +230,8 @@ import Text.PrettyPrint.HughesPJ
 import Language.Fixpoint.Config     hiding (Config) 
 import Language.Fixpoint.Misc
 import Language.Fixpoint.Types      hiding (Predicate, Def, R)
-import Language.Fixpoint.Names      (symSepName, isSuffixOfSym, singletonSym, funConName, listConName, tupConName)
+import Language.Fixpoint.Names      (funConName, listConName, tupConName)
+import qualified Language.Fixpoint.PrettyPrint as F
 import CoreSyn (CoreBind)
 
 import Language.Haskell.Liquid.Variance
@@ -236,7 +239,6 @@ import Language.Haskell.Liquid.Misc (mapSndM)
 
 
 import Data.Default
-
 -----------------------------------------------------------------------------
 -- | Command Line Config Options --------------------------------------------
 -----------------------------------------------------------------------------
@@ -259,7 +261,7 @@ data Config = Config {
   , totality       :: Bool       -- ^ check totality in definitions
   , noPrune        :: Bool       -- ^ disable prunning unsorted Refinements
   , maxParams      :: Int        -- ^ the maximum number of parameters to accept when mining qualifiers
-  , smtsolver      :: SMTSolver  -- ^ name of smtsolver to use [default: z3-API]
+  , smtsolver      :: Maybe SMTSolver  -- ^ name of smtsolver to use [default: try z3, cvc4, mathsat in order]
   , shortNames     :: Bool       -- ^ drop module qualifers from pretty-printed names.
   , shortErrors    :: Bool       -- ^ don't show subtyping errors and contexts. 
   , ghcOptions     :: [String]   -- ^ command-line options to pass to GHC
@@ -300,7 +302,7 @@ data PPEnv
 
 ppEnv           = ppEnvPrintPreds
 _ppEnvCurrent    = PP False False False False
-ppEnvPrintPreds = PP True False False False
+ppEnvPrintPreds = PP False False False False
 ppEnvShort pp   = pp { ppShort = True }
 
 
@@ -356,6 +358,7 @@ data GhcSpec = SP {
   , exports    :: !NameSet                       -- ^ `Name`s exported by the module being verified
   , measures   :: [Measure SpecType DataCon]
   , tyconEnv   :: M.HashMap TyCon RTyCon
+  , dicts      :: DEnv Var SpecType                  -- ^ Dictionary Environment
   }
 
 type LogicMap = M.HashMap Symbol LMap 
@@ -446,6 +449,13 @@ instance Hashable (PVar a) where
   hashWithSalt i (PV n _ _ _) = hashWithSalt i n
 
 
+
+--------------------------------------------------------------------
+------ Strictness --------------------------------------------------
+--------------------------------------------------------------------
+
+instance NFData Var
+instance NFData SrcSpan
 --------------------------------------------------------------------
 ------------------ Predicates --------------------------------------
 --------------------------------------------------------------------
@@ -635,7 +645,6 @@ data RType c tv r
     , rt_obl   :: !Oblig 
     , rt_ty    :: !(RType c tv r)
     }
-  | ROth  !Symbol
 
   | RHole r -- ^ let LH match against the Haskell type and add k-vars, e.g. `x:_`
             --   see tests/pos/Holes.hs
@@ -644,6 +653,7 @@ data RType c tv r
 data Oblig 
   = OTerm -- ^ Obligation that proves termination
   | OInv  -- ^ Obligation that proves invariants
+  | OCons -- ^ Obligation that proves constraints
   deriving (Generic, Data, Typeable)
 
 ignoreOblig (RRTy _ _ _ t) = t
@@ -652,6 +662,7 @@ ignoreOblig t              = t
 instance Show Oblig where
   show OTerm = "termination-condition"
   show OInv  = "invariant-obligation"
+  show OCons = "constraint-obligation"
 
 instance PPrint Oblig where
   pprint = text . show
@@ -798,14 +809,33 @@ instance Fixpoint RTyCon where
 
 
 instance PPrint RTyCon where
-  pprint (RTyCon c _ i) = (text $ showPpr c) <+> text (show i)
+  pprint = text . showPpr . rtc_tc  
+
 
 instance Show RTyCon where
   show = showpp  
 
 --------------------------------------------------------------------------
+-- | Refined Instances ---------------------------------------------------
+--------------------------------------------------------------------------
+
+data RInstance t = RI { riclass :: LocSymbol
+                      , ritype  :: t 
+                      , risigs  :: [(LocSymbol, t)]
+                      }
+
+newtype DEnv x ty = DEnv (M.HashMap x (M.HashMap Symbol ty)) deriving (Monoid)
+
+type RDEnv = DEnv Var SpecType
+
+instance Functor RInstance where
+  fmap f (RI x t xts) = RI x (f t) (mapSnd f <$> xts) 
+
+
+--------------------------------------------------------------------------
 -- | Values Related to Specifications ------------------------------------
 --------------------------------------------------------------------------
+
 
 -- | Data type refinements
 data DataDecl   = D { tycName   :: LocSymbol
@@ -903,6 +933,8 @@ bkUniv t                = ([], [], [], t)
 bkClass (RFun _ (RApp c t _ _) t' _)  
   | isClass c 
   = let (cs, t'') = bkClass t' in ((c, t):cs, t'')
+bkClass (RRTy e r o t)
+  = let (cs, t') = bkClass t in (cs, RRTy e r o t')
 bkClass t                                              
   = ([], t)
 
@@ -966,20 +998,17 @@ instance Reftable Strata where
 instance (PPrint r, Reftable r) => Reftable (UReft r) where
   isTauto            = isTauto_ureft 
   ppTy               = ppTy_ureft
-  toReft (U r ps _)  = toReft r `meet` toReft ps
+  toReft (U r ps _)  = toReft r `meet` toReft ps 
   params (U r _ _)   = params r
   bot (U r _ s)      = U (bot r) (Pr []) (bot s)
   top (U r p s)      = U (top r) (top p) (top s)
 
   ofReft = error "TODO: UReft.ofReft"
 
-isTauto_ureft u      = isTauto (ur_reft u) && isTauto (ur_pred u) && (isTauto $ ur_strata u)
-
-isTauto_ureft' u     = isTauto (ur_reft u) && isTauto (ur_pred u)
+isTauto_ureft u      = isTauto (ur_reft u) && isTauto (ur_pred u) -- && (isTauto $ ur_strata u)
 
 ppTy_ureft u@(U r p s) d 
   | isTauto_ureft  u  = d
-  | isTauto_ureft' u  = d <> ppr_str s
   | otherwise         = ppr_reft r (ppTy p d) s
 
 ppr_reft r d s       = braces (toFix v <+> colon <+> d <> ppr_str s <+> text "|" <+> pprint r')
@@ -1025,6 +1054,7 @@ instance Reftable Predicate where
   isTauto (Pr ps)      = null ps
 
   bot (Pr _)           = errorstar "No BOT instance for Predicate"
+  -- NV: This does not print abstract refinements....
   -- HACK: Hiding to not render types in WEB DEMO. NEED TO FIX.
   ppTy r d | isTauto r        = d 
            | not (ppPs ppEnv) = d
@@ -1075,7 +1105,6 @@ emapReft f γ (REx z t t')        = REx   z (emapReft f γ t) (emapReft f γ t')
 emapReft _ _ (RExprArg e)        = RExprArg e
 emapReft f γ (RAppTy t t' r)     = RAppTy (emapReft f γ t) (emapReft f γ t') (f γ r)
 emapReft f γ (RRTy e r o t)      = RRTy  (mapSnd (emapReft f γ) <$> e) (f γ r) o (emapReft f γ t)
-emapReft _ _ (ROth s)            = ROth  s 
 emapReft f γ (RHole r)           = RHole (f γ r)
 
 emapRef :: ([Symbol] -> t -> s) ->  [Symbol] -> RTProp c tv t -> RTProp c tv s
@@ -1093,6 +1122,7 @@ isBase (RApp _ ts _ _)  = all isBase ts
 isBase (RFun _ t1 t2 _) = isBase t1 && isBase t2
 isBase (RAppTy t1 t2 _) = isBase t1 && isBase t2
 isBase (RRTy _ _ _ t)   = isBase t
+isBase (RAllE _ _ t)    = isBase t
 isBase _                = False
 
 isFunTy (RAllE _ _ t)    = isFunTy t
@@ -1114,7 +1144,6 @@ mapReftM f (RAllE z t t')     = liftM2  (RAllE z)   (mapReftM f t)          (map
 mapReftM f (REx z t t')       = liftM2  (REx z)     (mapReftM f t)          (mapReftM f t')
 mapReftM _ (RExprArg e)       = return  $ RExprArg e 
 mapReftM f (RAppTy t t' r)    = liftM3  RAppTy (mapReftM f t) (mapReftM f t') (f r)
-mapReftM _ (ROth s)           = return  $ ROth  s 
 mapReftM f (RHole r)          = liftM   RHole       (f r)
 mapReftM f (RRTy xts r o t)   = liftM4  RRTy (mapM (mapSndM (mapReftM f)) xts) (f r) (return o) (mapReftM f t)
 
@@ -1141,8 +1170,8 @@ efoldReft cb g f fp = go
     
     go γ z (RAllE x t t')               = go (insertSEnv x (g t) γ) (go γ z t) t' 
     go γ z (REx x t t')                 = go (insertSEnv x (g t) γ) (go γ z t) t' 
-    go _ z (ROth _)                     = z 
-    go γ z me@(RRTy _ r _ t)            = f γ (Just me) r (go γ z t)
+    go γ z me@(RRTy [] r _ t)          = f γ (Just me) r (go γ z t)
+    go γ z me@(RRTy xts r _ t)          = f γ (Just me) r (go γ (go γ z (envtoType xts)) t)
     go γ z me@(RAppTy t t' r)           = f γ (Just me) r (go γ (go γ z t) t')
     go _ z (RExprArg _)                 = z
     go γ z me@(RHole r)                 = f γ (Just me) r z
@@ -1158,6 +1187,7 @@ efoldReft cb g f fp = go
     -- folding over [Ref]
     ho' γ z rs                 = foldr (flip $ ho γ) z rs 
 
+    envtoType xts = foldr (\(x,t1) t2 -> rFun x t1 t2) (snd $ last xts) (init xts)
 
 mapBot f (RAllT α t)       = RAllT α (mapBot f t)
 mapBot f (RAllP π t)       = RAllP π (mapBot f t)
@@ -1167,6 +1197,7 @@ mapBot f (RAppTy t t' r)   = RAppTy (mapBot f t) (mapBot f t') r
 mapBot f (RApp c ts rs r)  = f $ RApp c (mapBot f <$> ts) (mapBotRef f <$> rs) r
 mapBot f (REx b t1 t2)     = REx b  (mapBot f t1) (mapBot f t2)
 mapBot f (RAllE b t1 t2)   = RAllE b  (mapBot f t1) (mapBot f t2)
+mapBot f (RRTy e r o t)    = RRTy (mapSnd (mapBot f) <$> e) r o (mapBot f t)
 mapBot f t'                = f t' 
 mapBotRef _ (RPropP s r)    = RPropP s $ r
 mapBotRef f (RProp  s t)    = RProp  s $ mapBot f t
@@ -1180,7 +1211,6 @@ mapBind f (RApp c ts rs r) = RApp c (mapBind f <$> ts) (mapBindRef f <$> rs) r
 mapBind f (RAllE b t1 t2)  = RAllE  (f b) (mapBind f t1) (mapBind f t2)
 mapBind f (REx b t1 t2)    = REx    (f b) (mapBind f t1) (mapBind f t2)
 mapBind _ (RVar α r)       = RVar α r
-mapBind _ (ROth s)         = ROth s
 mapBind _ (RHole r)        = RHole r
 mapBind f (RRTy e r o t)   = RRTy e r o (mapBind f t)
 mapBind _ (RExprArg e)     = RExprArg e
@@ -1196,19 +1226,20 @@ ofRSort ::  Reftable r => RType c tv () -> RType c tv r
 ofRSort = fmap mempty
 
 toRSort :: RType c tv r -> RType c tv () 
-toRSort = stripQuantifiers . mapBind (const dummySymbol) . fmap (const ())
+toRSort = stripAnnotations . mapBind (const dummySymbol) . fmap (const ())
 
-stripQuantifiers (RAllT α t)      = RAllT α (stripQuantifiers t)
-stripQuantifiers (RAllP _ t)      = stripQuantifiers t
-stripQuantifiers (RAllS _ t)      = stripQuantifiers t
-stripQuantifiers (RAllE _ _ t)    = stripQuantifiers t
-stripQuantifiers (REx _ _ t)      = stripQuantifiers t
-stripQuantifiers (RFun x t t' r)  = RFun x (stripQuantifiers t) (stripQuantifiers t') r
-stripQuantifiers (RAppTy t t' r)  = RAppTy (stripQuantifiers t) (stripQuantifiers t') r
-stripQuantifiers (RApp c ts rs r) = RApp c (stripQuantifiers <$> ts) (stripQuantifiersRef <$> rs) r
-stripQuantifiers t                = t
-stripQuantifiersRef (RProp s t)   = RProp s $ stripQuantifiers t
-stripQuantifiersRef r             = r
+stripAnnotations (RAllT α t)      = RAllT α (stripAnnotations t)
+stripAnnotations (RAllP _ t)      = stripAnnotations t
+stripAnnotations (RAllS _ t)      = stripAnnotations t
+stripAnnotations (RAllE _ _ t)    = stripAnnotations t
+stripAnnotations (REx _ _ t)      = stripAnnotations t
+stripAnnotations (RFun x t t' r)  = RFun x (stripAnnotations t) (stripAnnotations t') r
+stripAnnotations (RAppTy t t' r)  = RAppTy (stripAnnotations t) (stripAnnotations t') r
+stripAnnotations (RApp c ts rs r) = RApp c (stripAnnotations <$> ts) (stripAnnotationsRef <$> rs) r
+stripAnnotations (RRTy _ _ _ t)   = stripAnnotations t
+stripAnnotations t                = t
+stripAnnotationsRef (RProp s t)   = RProp s $ stripAnnotations t
+stripAnnotationsRef r             = r
 
 
 insertsSEnv  = foldr (\(x, t) γ -> insertSEnv x t γ)
@@ -1283,66 +1314,34 @@ instance PPrint a => PPrint (Located a) where
   pprint = pprint . val 
 
 instance PPrint Int where
-  pprint = toFix
+  pprint = F.pprint
 
 instance PPrint Integer where
-  pprint = toFix
+  pprint = F.pprint
 
 instance PPrint Constant where
-  pprint = toFix
+  pprint = F.pprint
 
 instance PPrint Brel where
-  pprint Eq = text "=="
-  pprint Ne = text "/="
-  pprint r  = toFix r
+  pprint = F.pprint
 
 instance PPrint Bop where
-  pprint  = toFix 
+  pprint = F.pprint
 
 instance PPrint Sort where
-  pprint = toFix  
+  pprint = F.pprint
 
 instance PPrint Symbol where
   pprint = pprint . symbolText
 
 instance PPrint Expr where
-  pprint (EApp f es)     = {- parens $ -} intersperse empty $ (pprint f) : (pprint <$> es) 
-  pprint (ECon c)        = pprint c 
-  pprint (EVar s)        = pprint s
-  pprint (ELit s _)      = pprint s
-  pprint (EBin o e1 e2)  = {- parens $ -} pprint e1 <+> pprint o <+> pprint e2
-  pprint (EIte p e1 e2)  = {- parens $ -} text "if" <+> parens (pprint p) <+> text "then" <+> pprint e1 <+> text "else" <+> pprint e2 
-  pprint (ECst e so)     = parens $ pprint e <+> text " : " <+> pprint so 
-  pprint (EBot)          = text "_|_"
-  pprint (ESym s)        = pprint s
+  pprint = F.pprint
 
 instance PPrint SymConst where
-  pprint (SL s)          = text $ T.unpack s
+  pprint = F.pprint
 
 instance PPrint Pred where
-  pprint PTop            = text "???"
-  pprint PTrue           = trueD 
-  pprint PFalse          = falseD
-  pprint (PBexp e)       = {- parens $ -} pprint e
-  pprint (PNot p)        = {- parens $ -} text "not" <+> parens (pprint p)
-  pprint (PImp p1 p2)    = {- parens $ -} pprint p1 <+> text "=>"  <+> pprint p2
-  pprint (PIff p1 p2)    = {- parens $ -} (pprint p1) <+> text "<=>" <+> (pprint p2)
-  pprint (PAnd ps)       = {- parens $ -} pprintBin trueD  andD ps
-  pprint (POr  ps)       = {- parens $ -} pprintBin falseD orD  ps 
-  pprint (PAtom r e1 e2) = {- parens $ -} pprint e1 <+> pprint r <+> pprint e2
-  pprint (PAll xts p)    = text "forall" <+> toFix xts <+> text "." <+> pprint p
-
-trueD  = text "true"
-falseD = text "false"
-andD   = text " &&"
-orD    = text " ||"
-
-pprintBin b _ []     = b
-pprintBin _ o xs     = intersperse o $ pprint <$> xs 
-
--- pprintBin b o []     = b
--- pprintBin b o [x]    = pprint x
--- pprintBin b o (x:xs) = pprint x <+> o <+> pprintBin b o xs 
+  pprint = F.pprint
 
 instance PPrint a => PPrint (PVar a) where
   pprint (PV s _ _ xts)   = pprint s <+> hsep (pprint <$> dargs xts)
@@ -1357,15 +1356,11 @@ instance PPrint Refa where
   pprint (RConc p)     = pprint p
   pprint k             = toFix k
  
-instance PPrint Reft where 
-  pprint r@(Reft (_,ras)) 
-    | isTauto r        = text "true"
-    | otherwise        = {- intersperse comma -} pprintBin trueD andD $ flattenRefas ras
+instance PPrint Reft where
+  pprint = F.pprint
 
 instance PPrint SortedReft where
-  pprint (RR so (Reft (v, ras))) 
-    = braces 
-    $ (pprint v) <+> (text ":") <+> (toFix so) <+> (text "|") <+> pprint ras
+  pprint = F.pprint
 
 ------------------------------------------------------------------------
 -- | Error Data Type ---------------------------------------------------
@@ -1473,6 +1468,15 @@ data TError t =
                 , hs   :: !Type
                 , texp :: !t
                 } -- ^ Mismatch between Liquid and Haskell types
+  
+  | ErrAliasCycle { pos    :: !SrcSpan
+                  , acycle :: ![(SrcSpan, Doc)] 
+                  } -- ^ Cyclic Refined Type Alias Definitions
+
+  | ErrIllegalAliasApp { pos   :: !SrcSpan
+                       , dname :: !Doc
+                       , dpos  :: !SrcSpan
+                       } -- ^ Illegal RTAlias application (from BSort, eg. in PVar)
 
   | ErrAliasApp { pos   :: !SrcSpan
                 , nargs :: !Int
@@ -1485,11 +1489,15 @@ data TError t =
                 , msg :: !Doc
                 } -- ^ Previously saved error, that carries over after DiffCheck
 
-  
   | ErrTermin   { bind :: ![Var]
                 , pos  :: !SrcSpan
                 , msg  :: !Doc
                 } -- ^ Termination Error 
+
+  | ErrRClass   { pos   :: !SrcSpan
+                , cls   :: !Doc
+                , insts :: ![(SrcSpan, Doc)]
+                } -- ^ Refined Class/Interfaces Conflict
 
   | ErrOther    { pos :: !SrcSpan
                 , msg :: !Doc
@@ -1576,18 +1584,9 @@ getModString = moduleNameString . getModName
 ----------- Refinement Type Aliases -------------------------------------------
 -------------------------------------------------------------------------------
 
-type RTBareOrSpec = Either (ModName, (RTAlias Symbol BareType))
-                           (RTAlias RTyVar SpecType)
-
-type RTPredAlias  = Either (ModName, RTAlias Symbol Pred)
-                           (RTAlias Symbol Pred)
-
-type RTExprAlias  = Either (ModName, RTAlias Symbol Expr)
-                           (RTAlias Symbol Expr)
-
-data RTEnv   = RTE { typeAliases :: M.HashMap Symbol RTBareOrSpec
-                   , predAliases :: M.HashMap Symbol RTPredAlias
-                   , exprAliases :: M.HashMap Symbol RTExprAlias
+data RTEnv   = RTE { typeAliases :: M.HashMap Symbol (RTAlias RTyVar SpecType)
+                   , predAliases :: M.HashMap Symbol (RTAlias Symbol Pred)
+                   , exprAliases :: M.HashMap Symbol (RTAlias Symbol Expr)
                    }
 
 instance Monoid RTEnv where
@@ -1781,15 +1780,6 @@ hasHole (toReft -> (Reft (_, rs))) = any isHole rs
 instance Symbolic DataCon where
   symbol = symbol . dataConWorkId
 
-instance Symbolic Var where
-  symbol = varSymbol
-
-varSymbol ::  Var -> Symbol
-varSymbol v 
-  | us `isSuffixOfSym` vs = vs
-  | otherwise             = vs `mappend` singletonSym symSepName `mappend` us
-  where us  = symbol $ showPpr $ getDataConVarUnique v
-        vs  = symbol $ getName v
 
 instance PPrint DataCon where
   pprint = text . showPpr

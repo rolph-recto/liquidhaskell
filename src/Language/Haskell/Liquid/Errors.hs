@@ -9,11 +9,13 @@ module Language.Haskell.Liquid.Errors (tidyError) where
 
 
 import           Control.Applicative                 ((<$>), (<*>))
+import           Control.Arrow                       (second)
 import           Control.Exception                   (Exception (..))
 import           Data.Aeson
-import           Data.Hashable
+import           Data.Generics                       (everywhere, mkT)
 import qualified Data.HashMap.Strict                 as M
 import qualified Data.HashSet                        as S
+import           Data.Hashable
 import           Data.List                           (intersperse)
 import           Data.Maybe                          (fromMaybe, maybeToList)
 import           Data.Monoid                         hiding ((<>))
@@ -21,11 +23,12 @@ import           Language.Fixpoint.Misc              hiding (intersperse)
 import           Language.Fixpoint.Types             hiding (shiftVV)
 import           Language.Haskell.Liquid.PrettyPrint
 import           Language.Haskell.Liquid.RefType
+import           Language.Haskell.Liquid.Simplify
 import           Language.Haskell.Liquid.Tidy
 import           Language.Haskell.Liquid.Types
 import           SrcLoc                              (SrcSpan)
 import           Text.PrettyPrint.HughesPJ
-import           Control.Arrow                       (second)
+
 
 type Ctx = M.HashMap Symbol SpecType
 
@@ -64,10 +67,11 @@ stripReft t   = maybe t' (strengthen t') ro
     (t', ro)  = stripRType t                
 
 stripRType    :: SpecType -> (SpecType, Maybe RReft)
-stripRType t  = (t', ro)
+stripRType st = (t', ro)
   where
     t'        = fmap (const (uTop mempty)) t
     ro        = stripRTypeBase  t 
+    t         = simplifyBounds st 
 
 tidyREnv      :: [Symbol] -> M.HashMap Symbol SpecType -> [(Symbol, SpecType)]
 tidyREnv xs m = [(x, t) | x <- xs', t <- maybeToList (M.lookup x m), ok t]
@@ -119,8 +123,10 @@ ppSpecTypeErr t
   | otherwise   = dt <+> dr 
     where
       dt        = rtypeDoc Lossy t'
-      dr        = maybe empty ((text "|" <+>) . pprint) ro 
+      dr        = maybe empty ((text "|" <+>) . pprint . everywhere (mkT noCasts)) ro 
       (t', ro)  = stripRType t
+      noCasts (ECst x _) = x
+      noCasts e          = e
 
 -- full = isNontrivialVV $ rTypeValueVar t = 
 
@@ -145,6 +151,9 @@ blankLine    = sizedText 5 " "
 ------------------------------------------------------------------------
 ppError' :: (PPrint a) => Tidy -> Doc -> TError a -> Doc
 -----------------------------------------------------------------------
+
+ppError' _ dSp (ErrAssType _ OCons _ _)
+  = dSp <+> text "Constraint Check"
 
 ppError' _ dSp (ErrAssType _ OTerm _ _)
   = dSp <+> text "Termination Check"
@@ -225,6 +234,20 @@ ppError' _ dSp (ErrMismatch _ x τ t)
     $+$ text "Haskell:" <+> pprint τ
     $+$ text "Liquid :" <+> pprint t
 
+ppError' _ dSp (ErrAliasCycle _ acycle)
+  = dSp <+> text "Cyclic Alias Definitions"
+    $+$ text "The following alias definitions form a cycle:"
+    $+$ (nest 4 $ sepVcat blankLine $ map describe acycle)
+  where
+    describe (pos, name)
+      = text "Type alias:"     <+> pprint name
+        $+$ text "Defined at:" <+> pprint pos
+
+ppError' _ dSp (ErrIllegalAliasApp _ dn dl)
+  = dSp <+> text "Refinement Type Alias cannot be used in this context"
+    $+$ text "Type alias:" <+> pprint dn
+    $+$ text "Defined at:" <+> pprint dl
+
 ppError' _ dSp (ErrAliasApp _ n name dl dn)
   = dSp <+> text "Malformed Type Alias Application"
     $+$ text "Type alias:" <+> pprint name
@@ -236,6 +259,17 @@ ppError' _ dSp (ErrSaved _ s)
 
 ppError' _ dSp (ErrTermin xs _ s)
   = dSp <+> text "Termination Error on" <+> (hsep $ intersperse comma $ map pprint xs) $+$ s
+
+ppError' _ dSp (ErrRClass pos cls insts)
+  = dSp <+> text "Refined classes cannot have refined instances"
+    $+$ (nest 4 $ sepVcat blankLine $ describeCls : map describeInst insts)
+  where
+    describeCls
+      = text "Refined class definition for:" <+> cls
+        $+$ text "Defined at:" <+> pprint pos
+    describeInst (pos, t)
+      = text "Refined instance for:" <+> t
+        $+$ text "Defined at:" <+> pprint pos
 
 ppError' _ _ (ErrOther _ s)
   = text "Panic!" <+> nest 4 (pprint s)

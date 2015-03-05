@@ -109,7 +109,11 @@ rtypeDoc k    = ppr_rtype (ppE k) TopPrec
     ppE Lossy = ppEnvShort ppEnv
     ppE Full  = ppEnv
 
+ppTyConB bb 
+  | ppShort bb = text . symbolString . dropModuleNames . symbol . render . ppTycon
+  | otherwise  = ppTycon
 
+    
 ppr_rtype bb p t@(RAllT _ _)       
   = ppr_forall bb p t
 ppr_rtype bb p t@(RAllP _ _)       
@@ -126,8 +130,6 @@ ppr_rtype bb p (RApp c [t] rs r)
 ppr_rtype bb p (RApp c ts rs r)
   | isTuple c 
   = ppTy r $ parens (intersperse comma (ppr_rtype bb p <$> ts)) <> ppReftPs bb rs
-
-
 ppr_rtype bb p (RApp c ts rs r)
   | isEmpty rsDoc && isEmpty tsDoc
   = ppTy r $ ppT c
@@ -136,10 +138,8 @@ ppr_rtype bb p (RApp c ts rs r)
   where
     rsDoc            = ppReftPs bb rs
     tsDoc            = hsep (ppr_rtype bb p <$> ts)
-    ppT | ppShort bb = text . symbolString . dropModuleNames . symbol . render . ppTycon
-        | otherwise  = ppTycon
-
-
+    ppT              = ppTyConB bb
+    
 ppr_rtype bb p t@(REx _ _ _)
   = ppExists bb p t
 ppr_rtype bb p t@(RAllE _ _ _)
@@ -148,14 +148,24 @@ ppr_rtype _ _ (RExprArg e)
   = braces $ pprint e
 ppr_rtype bb p (RAppTy t t' r)
   = ppTy r $ ppr_rtype bb p t <+> ppr_rtype bb p t'
-ppr_rtype _ _ (ROth s)
-  = text $ "???-" ++ symbolString s
+ppr_rtype bb p (RRTy [(_, e)] _ OCons t)         
+  = sep [braces (ppr_rsubtype bb p e) <+> "=>", ppr_rtype bb p t]
 ppr_rtype bb p (RRTy e r o t)         
   = sep [ppp (pprint o <+> ppe <+> pprint r), ppr_rtype bb p t]
   where ppe = (hsep $ punctuate comma (pprint <$> e)) <+> colon <> colon
         ppp = \doc -> text "<<" <+> doc <+> text ">>"
 ppr_rtype _ _ (RHole r)
   = ppTy r $ text "_"
+
+
+ppr_rsubtype bb p e = pprint_env <+> text "|-" <+> ppr_rtype bb p tl <+> "<:" <+> ppr_rtype bb p tr
+  where
+    trep = toRTypeRep e
+    tr   = ty_res trep
+    tl   = last $ ty_args trep
+    env  = zip (init $ ty_binds trep) (init $ ty_args trep)
+    pprint_bind (x, t) = pprint x <+> colon <> colon <+> ppr_rtype bb p t 
+    pprint_env         = hsep $ punctuate comma (pprint_bind <$> env)
 
 ppSpine (RAllT _ t)      = text "RAllT" <+> parens (ppSpine t)
 ppSpine (RAllP _ t)      = text "RAllP" <+> parens (ppSpine t)
@@ -168,7 +178,6 @@ ppSpine (RHole _)        = text "RHole"
 ppSpine (RApp c _ _ _)   = text "RApp" <+> parens (pprint c)
 ppSpine (RVar _ _)       = text "RVar"
 ppSpine (RExprArg _)     = text "RExprArg"
-ppSpine (ROth s)         = text "ROth" <+> text (symbolString s)
 ppSpine (RRTy _ _ _ _)   = text "RRTy"
 
 -- | From GHC: TypeRep 

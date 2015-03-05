@@ -51,9 +51,8 @@ unitTests
       testGroup "pos"         <$> dirTests "tests/pos"                            []           ExitSuccess
     , testGroup "neg"         <$> dirTests "tests/neg"                            []           (ExitFailure 1)
     , testGroup "crash"       <$> dirTests "tests/crash"                          []           (ExitFailure 2) 
-    , testGroup "parserpos"   <$> dirTests "tests/parser/pos"                    []           ExitSuccess
-    , testGroup "errorcrash"  <$> dirTests "tests/error_messages/crash"           []           (ExitFailure 2)
-    , testGroup "errorpos"    <$> dirTests "tests/parser/pos"                     []           ExitSuccess
+    , testGroup "parser/pos"  <$> dirTests "tests/parser/pos"                     []           ExitSuccess
+    , testGroup "error/crash" <$> dirTests "tests/error_messages/crash"           []           (ExitFailure 2)
    ]
 
 benchTests
@@ -63,7 +62,8 @@ benchTests
     , testGroup "esop"        <$> dirTests "benchmarks/esop2013-submission"       ["Base0.hs"] ExitSuccess
     , testGroup "vect-algs"   <$> dirTests "benchmarks/vector-algorithms-0.5.4.2" []           ExitSuccess
     , testGroup "hscolour"    <$> dirTests "benchmarks/hscolour-1.20.0.0"         []           ExitSuccess
-
+    , testGroup "icfp_pos"    <$> dirTests "benchmarks/icfp15/pos"                []           ExitSuccess
+    , testGroup "icfp_neg"    <$> dirTests "benchmarks/icfp15/neg"                ["RIO.hs", "DataBase.hs", "DataBase.Domain.hs"]           (ExitFailure 1)
     ]
 
 ---------------------------------------------------------------------------
@@ -98,7 +98,9 @@ mkTest code dir file
     test = dir </> file
     log = let (d,f) = splitFileName file in dir </> d </> ".liquid" </> f <.> "log"
 
-knownToFail CVC4 = [ "tests/pos/linspace.hs", "tests/pos/RealProps.hs", "tests/pos/RealProps1.hs", "tests/pos/initarray.hs" ]
+knownToFail CVC4 = [ "tests/pos/linspace.hs", "tests/pos/RealProps.hs", "tests/pos/RealProps1.hs", "tests/pos/initarray.hs"
+                   , "tests/pos/maps.hs", "tests/pos/maps1.hs", "tests/neg/maps.hs"
+                   , "tests/pos/Product.hs" ]
 knownToFail Z3   = [ "tests/pos/linspace.hs" ]
 
 ---------------------------------------------------------------------------

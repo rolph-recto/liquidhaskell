@@ -7,7 +7,8 @@
 
 module Language.Haskell.Liquid.CoreToLogic ( 
 
-  coreToDef , mkLit, runToLogic,
+  coreToDef , coreToFun
+  , mkLit, runToLogic,
   logicType, 
   strengthenResult
 
@@ -17,20 +18,20 @@ import GHC hiding (Located)
 import Var
 import Type 
 
-import qualified CoreSyn as C
+import qualified CoreSyn   as C
 import Literal
 import IdInfo
 
-
-import TysWiredIn
+import qualified Data.ByteString as B
+import TysWiredIn 
 
 import Control.Applicative 
 
 import Language.Fixpoint.Misc
-import Language.Fixpoint.Names (dropModuleNames, isPrefixOfSym)
+import Language.Fixpoint.Names (dropModuleNames, isPrefixOfSym, propConName)
 import Language.Fixpoint.Types hiding (Def, R, simplify)
 import qualified Language.Fixpoint.Types as F
-import Language.Haskell.Liquid.GhcMisc hiding (isDictionary)
+import Language.Haskell.Liquid.GhcMisc
 import Language.Haskell.Liquid.GhcPlay
 import Language.Haskell.Liquid.Types    hiding (GhcInfo(..), GhcSpec (..))
 import Language.Haskell.Liquid.WiredIn
@@ -42,9 +43,6 @@ import qualified Data.HashMap.Strict as M
 
 import Data.Monoid
 
-
-
--- import Debug.Trace (trace)
 
 logicType :: (Reftable r) => Type -> RRType r
 logicType τ = fromRTypeRep $ t{ty_res = res, ty_binds = binds, ty_args = args}
@@ -81,11 +79,12 @@ strengthenResult v
   where rep = toRTypeRep t
         res = ty_res rep
         xs  = intSymbol (symbol ("x" :: String)) <$> [1..]
-        r'  = U (exprReft (EApp f [EVar x]))         mempty mempty
-        r   = U (propReft (PBexp $ EApp f [EVar x])) mempty mempty
-        x   = safeHead "strengthenResult" $ fst $  unzip $ dropWhile isClassBind $ zip xs (ty_args rep)
+        r'  = U (exprReft (EApp f (mkA <$> vxs)))         mempty mempty
+        r   = U (propReft (PBexp $ EApp f (mkA <$> vxs))) mempty mempty
+        vxs = dropWhile isClassBind $ zip xs (ty_args rep)
         f   = dummyLoc $ dropModuleNames $ simplesymbol v
         t   = (ofType $ varType v) :: SpecType
+        mkA = \(x, t) -> if isBool t then EApp (dummyLoc propConName) [(EVar x)] else EVar x
 
 
 simplesymbol = symbol . getName
@@ -137,15 +136,32 @@ coreToDef x _ e = go $ inline_preds $ simplify e
       | otherwise       = mapM goalt      alts
     go _                = throw "Measure Functions should have a case at top level"
 
-    goalt ((C.DataAlt d), xs, e)      = ((Def x d (symbol <$> xs)) . E {- . traceShow ("coreToLogic\t from \n" ++ showPpr e) -} ) <$> coreToLogic e
+    goalt ((C.DataAlt d), xs, e)      = ((Def x d (symbol <$> xs)) . E) <$> coreToLogic e
     goalt alt = throw $ "Bad alternative" ++ showPpr alt
 
-    goalt_prop ((C.DataAlt d), xs, e) = ((Def x d (symbol <$> xs)) . P {- . traceShow ("coreToPred\t from \t " ++ showPpr e) -} ) <$> coreToPred  e
+    goalt_prop ((C.DataAlt d), xs, e) = ((Def x d (symbol <$> xs)) . P) <$> coreToPred  e
     goalt_prop alt = throw $ "Bad alternative" ++ showPpr alt
 
     inline_preds = inline (eqType boolTy . varType)
 
+coreToFun :: LocSymbol -> Var -> C.CoreExpr ->  LogicM ([Symbol], Either Pred Expr)
+coreToFun _ v e = go [] $ inline_preds $ simplify e
+  where
+    go acc (C.Lam x e)  | isTyVar    x = go acc e
+    go acc (C.Lam x e)  | isErasable x = go acc e
+    go acc (C.Lam x e)  = go (symbol x : acc) e
+    go acc (C.Tick _ e) = go acc e
+    go acc e            | eqType rty boolTy 
+                        = (reverse acc,) . Left  <$> coreToPred e  
+                        | otherwise       
+                        = (reverse acc,) . Right <$> coreToLogic e
 
+    inline_preds = inline (eqType boolTy . varType)
+
+    rty = snd $ splitFunTys $ snd $ splitForAllTys $ varType v
+
+instance Show C.CoreExpr where
+  show = showPpr
 
 coreToPred :: C.CoreExpr -> LogicM Pred
 coreToPred (C.Let b p)  = subst1 <$> coreToPred p <*>  makesub b
@@ -227,6 +243,9 @@ toLogicApp e
         (\x -> makeApp def lmap x args) <$> tosymbol' f
 
 makeApp :: Expr -> LogicMap -> Located Symbol-> [Expr] -> Expr
+makeApp _ _ f [e] | val f == symbol ("GHC.Num.negate" :: String)
+  = ENeg e
+
 makeApp _ _ f [e1, e2] | Just op <- M.lookup (val f) bops
   = EBin op e1 e2
 
@@ -263,7 +282,7 @@ splitArgs e = (f, reverse es)
     (f, es) = go e
 
     go (C.App (C.Var i) e) | ignoreVar i       = go e
-    go (C.App f (C.Var v)) | isDictionary v    = go f
+    go (C.App f (C.Var v)) | isErasable v    = go f
     go (C.App f e) = (f', e:es) where (f', es) = go f
     go f           = (f, [])
 
@@ -284,9 +303,20 @@ mkLit (MachWord64 n)   = mkI n
 mkLit (MachFloat  n)   = mkR n
 mkLit (MachDouble n)   = mkR n
 mkLit (LitInteger n _) = mkI n
+mkLit (MachStr s)      = mkS s 
 mkLit _                = Nothing -- ELit sym sort
+
 mkI                    = Just . ECon . I  
 mkR                    = Just . ECon . F.R . fromRational
+mkS s                  = Just (ELit  (dummyLoc $ symbol s) stringSort)
+
+
+stringSort = rTypeSort M.empty (ofType stringTy :: RSort)
+-- stringSort = rTypeSort M.empty (ofType stringTy :: RSort)
+
+
+instance Symbolic B.ByteString where
+  symbol x = symbol $ init $ tail $ show x
 
 ignoreVar i = simpleSymbolVar i `elem` ["I#"]
 
@@ -294,7 +324,7 @@ ignoreVar i = simpleSymbolVar i `elem` ["I#"]
 simpleSymbolVar  = dropModuleNames . symbol . showPpr . getName
 simpleSymbolVar' = symbol . showPpr . getName
 
-isDictionary v   = isPrefixOfSym (symbol ("$" :: String)) (simpleSymbolVar v)
+isErasable v   = isPrefixOfSym (symbol ("$" :: String)) (simpleSymbolVar v)
 
 isDead = isDeadOcc . occInfo . idInfo
 
@@ -309,7 +339,7 @@ instance Simplify C.CoreExpr where
     = e
   simplify (C.App e (C.Type _))                        
     = simplify e
-  simplify (C.App e (C.Var dict))  | isDictionary dict 
+  simplify (C.App e (C.Var dict))  | isErasable dict 
     = simplify e
   simplify (C.App (C.Lam x e) _)   | isDead x          
     = simplify e

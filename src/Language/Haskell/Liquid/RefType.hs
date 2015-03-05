@@ -36,6 +36,7 @@ module Language.Haskell.Liquid.RefType (
   -- TODO: categorize these!
   , ofType, toType
   , rTyVar, rVar, rApp, rEx 
+  , symbolRTyVar
   , addTyConInfo
   -- , expandRApp
   , appRTyCon
@@ -88,7 +89,7 @@ import Language.Haskell.Liquid.Variance
 
 import Language.Haskell.Liquid.Misc
 import Language.Fixpoint.Misc
-import Language.Haskell.Liquid.GhcMisc (typeUniqueString, tvId, showPpr)
+import Language.Haskell.Liquid.GhcMisc (typeUniqueString, tvId, showPpr, stringTyVar)
 import Language.Fixpoint.Names (listConName, tupConName)
 import Data.List (sort, foldl')
 
@@ -314,6 +315,8 @@ instance Hashable RTyCon where
 rVar        = (`RVar` mempty) . RTV 
 rTyVar      = RTV
 
+symbolRTyVar = rTyVar . stringTyVar . symbolString
+
 normalizePds t = addPds ps t'
   where (t', ps) = nlzP [] t
 
@@ -346,8 +349,6 @@ nlzP ps (RAllS _ t)
 nlzP ps (RAllP p t)
  = (t', [p] ++ ps ++ ps')
   where (t', ps') = nlzP [] t
-nlzP ps t@(ROth _)
- = (t, ps)
 nlzP ps t@(REx _ _ _) 
  = (t, ps) 
 nlzP ps t@(RRTy _ _ _ t') 
@@ -445,10 +446,18 @@ expandRApp :: (PPrint r, Reftable r)
 expandRApp tce tyi t@(RApp {}) = RApp rc' ts rs' r
   where
     RApp rc ts rs r            = t
-    rc'                        = appRTyCon tce tyi rc ts
+    rc'                        = appRTyCon tce tyi rc as
     pvs                        = rTyConPVs rc'
     rs'                        = applyNonNull rs0 (rtPropPV rc pvs) rs
     rs0                        = rtPropTop <$> pvs
+    n                          = length fVs
+    fVs                        = tyConTyVars $ rtc_tc rc
+    as                         = choosen n ts (rVar <$> fVs)
+  
+    choosen 0 _ _           = []
+    choosen i (x:xs) (_:ys) = x:choosen (i-1) xs ys
+    choosen i []     (y:ys) = y:choosen (i-1) [] ys
+    choosen _ _ _           = errorstar "choosen: this cannot happen"
 
 expandRApp _ _ t               = t
 
@@ -512,7 +521,7 @@ freeTyVars (REx _ _ t)     = freeTyVars t
 freeTyVars (RExprArg _)    = []
 freeTyVars (RAppTy t t' _) = freeTyVars t `L.union` freeTyVars t'
 freeTyVars (RHole _)       = []
-freeTyVars t               = errorstar ("RefType.freeTyVars cannot handle" ++ show t)
+freeTyVars (RRTy e _ _ t)  = L.nub $ concatMap freeTyVars (t:(snd <$> e))
 
 
 tyClasses (RAllP _ t)     = tyClasses t
@@ -551,7 +560,6 @@ instance (NFData b, NFData c, NFData e) => NFData (RType b c e) where
   rnf (RApp _ ts rs r) = rnf ts `seq` rnf rs `seq` rnf r
   rnf (RAllE x t t')   = rnf x `seq` rnf t `seq` rnf t'
   rnf (REx x t t')     = rnf x `seq` rnf t `seq` rnf t'
-  rnf (ROth s)         = rnf s
   rnf (RExprArg e)     = rnf e
   rnf (RAppTy t t' r)  = rnf t `seq` rnf t' `seq` rnf r
   rnf (RRTy _ r _ t)   = rnf r `seq` rnf t
@@ -616,8 +624,6 @@ subsFree _ _ _ t@(RExprArg _)
   = t
 subsFree m s z (RRTy e r o t)        
   = RRTy (mapSnd (subsFree m s z) <$> e) r o (subsFree m s z t)
-subsFree _ _ _ t@(ROth _)        
-  = t
 subsFree _ _ _ t@(RHole _)
   = t
 
@@ -802,8 +808,6 @@ toType (RAppTy t t' _)
   = AppTy (toType t) (toType t')
 toType t@(RExprArg _)
   = errorstar $ "RefType.toType cannot handle 1: " ++ show t
-toType t@(ROth _)      
-  = errorstar $ "RefType.toType cannot handle 2: " ++ show t
 toType (RRTy _ _ _ t)      
   = toType t
 toType t

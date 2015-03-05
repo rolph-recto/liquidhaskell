@@ -230,8 +230,11 @@ substPredP msg su@(p, RProp ss _) (RProp s t)
 substPredP _ _  (RHProp _ _)       
   = errorstar "TODO:EFFECTS:substPredP"
 
-substPredP _ _ _  
-  = errorstar "PredType.substPredP called on invalid inputs"
+substPredP _ su p@(RPropP _ _) 
+  = errorstar ("PredType.substPredP1 called on invalid inputs" ++ showpp (su, p))
+
+substPredP _ su p 
+  = errorstar ("PredType.substPredP called on invalid inputs" ++ showpp (su, p))
 
 
 splitRPvar pv (U x (Pr pvs) s) = (U x (Pr pvs') s, epvs)
@@ -259,8 +262,6 @@ freeArgsPs p (RAppTy t1 t2 r)
   = nub $ freeArgsPsRef p r ++ freeArgsPs p t1 ++ freeArgsPs p t2
 freeArgsPs _ (RExprArg _)              
   = []
-freeArgsPs _ (ROth _)
-  = []
 freeArgsPs p (RHole r)
   = freeArgsPsRef p r
 freeArgsPs p (RRTy env r _ t)
@@ -280,9 +281,10 @@ meetListWithPSub ss r1 r2 π
   = r2 `meet` r1
   | all (\(_, x, EVar y) -> x /= y) (pargs π)
   = r2 `meet` (subst su r1)
-  | otherwise
+  | otherwise 
   = errorstar $ "PredType.meetListWithPSub partial application to " ++ showpp π
-  where su  = mkSubst [(x, y) | (x, (_, _, y)) <- zip (fst <$> ss) (pargs π)]
+  where 
+    su  = mkSubst [(x, y) | (x, (_, _, y)) <- zip (fst <$> ss) (pargs π)]
 
 meetListWithPSubRef ss (RProp s1 r1) (RProp s2 r2) π
   | all (\(_, x, EVar y) -> x == y) (pargs π)

@@ -1,5 +1,6 @@
 {-# LANGUAGE TupleSections  #-}
 
+import           Data.Maybe
 import           Data.Monoid      (mconcat, mempty)
 import           System.Exit 
 import           Control.Applicative ((<$>))
@@ -12,7 +13,6 @@ import           System.Console.CmdArgs.Default
 
 import qualified Language.Fixpoint.Config as FC
 import qualified Language.Haskell.Liquid.DiffCheck as DC
-import           Language.Fixpoint.Files
 import           Language.Fixpoint.Misc
 import           Language.Fixpoint.Interface
 import           Language.Fixpoint.Types (sinfo)
@@ -88,12 +88,12 @@ solveCs cfg target cgi info dc
        let out0  = mkOutput cfg res sol annm
        return    $ out0 { o_vars = names } { o_errors  = warns} { o_result = res }
     where 
-       fx        = def { FC.solver = smtsolver cfg, FC.real = real cfg }
+       fx        = def { FC.solver = fromJust (smtsolver cfg), FC.real = real cfg }
        ferr s r  = fmap (tidyError s) $ result $ sinfo <$> r
 
 
-writeCGI tgt cgi = {-# SCC "ConsWrite" #-} writeFile (extFileName Cgi tgt) str
-  where 
-    str          = {-# SCC "PPcgi" #-} showpp cgi
+-- writeCGI tgt cgi = {-# SCC "ConsWrite" #-} writeFile (extFileName Cgi tgt) str
+--   where 
+--     str          = {-# SCC "PPcgi" #-} showpp cgi
 
  

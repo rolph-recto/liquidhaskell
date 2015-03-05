@@ -30,12 +30,12 @@ import Language.Fixpoint.Misc
 
 import qualified Language.Haskell.Liquid.CTags      as Tg
 
-
 data CGEnv 
   = CGE { loc    :: !SrcSpan           -- ^ Location in original source file
         , renv   :: !REnv              -- ^ SpecTypes for Bindings in scope
         , syenv  :: !(F.SEnv Var)      -- ^ Map from free Symbols (e.g. datacons) to Var
         -- , penv   :: !(F.SEnv PrType)   -- ^ PrTypes for top-level bindings (merge with renv) 
+        , denv   :: !RDEnv             -- ^ Dictionary Environment
         , fenv   :: !FEnv              -- ^ Fixpoint Environment
         , recs   :: !(S.HashSet Var)   -- ^ recursive defs being processed (for annotations)
         , invs   :: !RTyConInv         -- ^ Datatype invariants 
@@ -48,7 +48,12 @@ data CGEnv
         , trec  :: !(Maybe (M.HashMap F.Symbol SpecType)) -- ^ Type of recursive function with decreasing constraints
         , lcb   :: !(M.HashMap F.Symbol CoreExpr) -- ^ Let binding that have not been checked
         , holes :: !HEnv               -- ^ Types with holes, will need refreshing
+        , lcs   :: !LConstraint  -- ^ Logical Constraints
         } -- deriving (Data, Typeable)
+
+
+data LConstraint = LC [SpecType]
+
 
 instance PPrint CGEnv where
   pprint = pprint . renv
@@ -213,6 +218,27 @@ conjoinInvariant t@(RVar _ r) (RVar _ ir)
 
 conjoinInvariant t _  
   = t
+
+
+
+grapBindsWithType tx γ 
+  = fst <$> toListREnv (filterREnv ((== toRSort tx) . toRSort) (renv γ))
+
+---------------------------------------------------------------
+----- Refinement Type Environments ----------------------------
+---------------------------------------------------------------
+
+
+
+toListREnv (REnv env)     = M.toList env
+filterREnv f (REnv env)   = REnv $ M.filter f env
+fromListREnv              = REnv . M.fromList
+deleteREnv x (REnv env)   = REnv (M.delete x env)
+insertREnv x y (REnv env) = REnv (M.insert x y env)
+lookupREnv x (REnv env)   = M.lookup x env
+memberREnv x (REnv env)   = M.member x env
+
+
 
 
 ------------------------------------------------------------------------------

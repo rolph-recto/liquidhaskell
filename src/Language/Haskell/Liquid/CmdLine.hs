@@ -26,30 +26,35 @@ module Language.Haskell.Liquid.CmdLine (
    , diffcheck
 ) where
 
-import           Control.Applicative                 ((<$>))
-import           Control.Monad
+import Control.Applicative                 ((<$>))
+import Control.Monad
+import Data.Maybe
+import System.Directory
+import System.Exit
+import System.Environment
 
-import           Data.List                           (nub)
-import           Data.Monoid
+import System.Console.CmdArgs.Explicit
+import System.Console.CmdArgs.Implicit     hiding (Loud)
+import System.Console.CmdArgs.Text
 
-import           System.Console.CmdArgs              hiding (Loud)
-import           System.Directory                    (doesDirectoryExist, canonicalizePath, getCurrentDirectory)
-import           System.Environment                  (lookupEnv, withArgs)
+import Data.List                           (nub)
+import Data.Monoid
+
 import           System.FilePath                     (dropFileName, isAbsolute,
                                                       takeDirectory, (</>))
 
-import           Language.Fixpoint.Config            hiding (Config, real)
-import           Language.Fixpoint.Files
-import           Language.Fixpoint.Misc
-import           Language.Fixpoint.Names             (dropModuleNames)
-import           Language.Fixpoint.Types             
-import           Language.Haskell.Liquid.Annotate
-import           Language.Haskell.Liquid.Misc
-import           Language.Haskell.Liquid.PrettyPrint
-import           Language.Haskell.Liquid.Types       hiding (config, name, typ)
+import Language.Fixpoint.Config            hiding (Config, real)
+import Language.Fixpoint.Files
+import Language.Fixpoint.Misc
+import Language.Fixpoint.Names             (dropModuleNames)
+import Language.Fixpoint.Types
+import Language.Haskell.Liquid.Annotate
+import Language.Haskell.Liquid.Misc
+import Language.Haskell.Liquid.PrettyPrint
+import Language.Haskell.Liquid.Types       hiding (config, name, typ)
 
-import           Text.Parsec.Pos                     (newPos)
-import           Text.PrettyPrint.HughesPJ
+import Text.Parsec.Pos                     (newPos)
+import Text.PrettyPrint.HughesPJ           hiding (Mode)
 
 
 ---------------------------------------------------------------------------------
@@ -155,11 +160,32 @@ config = cmdArgsMode $ Config {
 
 getOpts :: IO Config
 getOpts = do cfg0    <- envCfg
-             cfg1    <- mkOpts =<< cmdArgsRun config
+             cfg1    <- mkOpts =<< cmdArgsRun' config
              pwd     <- getCurrentDirectory
              cfg     <- canonicalizePaths (fixCfg $ mconcat [cfg0, cfg1]) pwd
              whenNormal $ putStrLn copyright
-             return cfg
+             case smtsolver cfg of
+               Just _  -> return cfg
+               Nothing -> do smts <- mapM find [Z3, Cvc4, Mathsat]
+                             case catMaybes smts of
+                               (s:_) -> return (cfg {smtsolver = Just s})
+                               _     -> do putStrLn "ERROR: LiquidHaskell requires z3, cvc4, or mathsat to be installed."
+                                           exitWith $ ExitFailure 2
+
+cmdArgsRun' :: Mode (CmdArgs a) -> IO a
+cmdArgsRun' mode
+  = do parseResult <- process mode <$> getArgs
+       case parseResult of
+         Left err ->
+           putStrLn (help err) >> exitFailure
+         Right args ->
+           cmdArgsApply args
+  where
+    help err
+      = showText defaultWrap $ helpText [err] HelpFormatDefault mode
+
+find :: SMTSolver -> IO (Maybe SMTSolver)
+find smt = maybe Nothing (const $ Just smt) <$> findExecutable (show smt)
 
 -- | Attempt to canonicalize all `FilePath's in the `Config' so we don't have
 --   to worry about relative paths.
@@ -284,7 +310,7 @@ writeResult cfg c          = mapM_ (writeDoc c) . zip [0..] . resDocs tidy
     writeBlock _  _ ss     = forM_ ("\n" : ss) putStrLn
 
 resDocs _ Safe             = [text "SAFE"]
-resDocs k (Crash xs s)     = text ("CRASH: " ++ s) : pprManyOrdered k "" xs
+resDocs k (Crash xs s)     = text ("ERROR: " ++ s) : pprManyOrdered k "" xs
 resDocs k (Unsafe xs)      = text "UNSAFE" : pprManyOrdered k "" (nub xs)
 resDocs _ (UnknownError d) = [text $ "PANIC: Unexpected Error: " ++ d, reportUrl]
 
