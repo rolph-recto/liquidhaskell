@@ -22,6 +22,14 @@ DEPS=unix-compat transformers mtl filemanip text parsec ghc-paths deepseq comona
 fast:
 	$(CABAL) install --ghc-options=$(FASTOPTS) 
 
+debug-fixpoint:
+	# deregister and then reregister liquid-fixpoint
+	# I have no idea why this is necessary
+	# but Cabal throws a fit otherwise
+	$(CABAL) sandbox delete-source ../liquid-fixpoint
+	$(CABAL) sandbox hc-pkg -- unregister liquid-fixpoint --force
+	$(CABAL) sandbox add-source ../liquid-fixpoint
+
 first: 
 	$(CABAL) install --ghc-options=$(FASTOPTS) --only-dependencies --enable-tests --enable-benchmarks
 
@@ -34,6 +42,17 @@ prof:
 igotgoto:
 	$(CABAL) build --ghc-options=$(OPTS) 
 	cp dist/build/liquid/liquid ~/.cabal/bin/
+
+copy-binaries:
+	cp .cabal-sandbox/bin/fixpoint ~/.cabal/bin/
+	cp .cabal-sandbox/bin/fixpoint.native ~/.cabal/bin/
+	cp .cabal-sandbox/bin/liquid ~/.cabal/bin/
+
+debug-install:
+	$(CABAL) install --ghc-options=$(FASTOPTS) 
+	cp .cabal-sandbox/bin/fixpoint ~/.cabal/bin/
+	cp .cabal-sandbox/bin/fixpoint.native ~/.cabal/bin/
+	cp .cabal-sandbox/bin/liquid ~/.cabal/bin/
 
 clean:
 	cabal clean
