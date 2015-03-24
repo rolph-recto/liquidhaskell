@@ -4,6 +4,7 @@ import           Data.Maybe
 import           Data.Monoid      (mconcat, mempty)
 import           System.Exit 
 import           Control.Applicative ((<$>))
+import           Control.Monad
 import           Control.DeepSeq
 import           Text.PrettyPrint.HughesPJ    
 import           CoreSyn
@@ -25,6 +26,7 @@ import           Language.Haskell.Liquid.Constraint.ToFixpoint
 import           Language.Haskell.Liquid.Constraint.Types
 import           Language.Haskell.Liquid.TransformRec   
 import           Language.Haskell.Liquid.Annotate (mkOutput)
+import           Language.Haskell.Liquid.FaultLocal
 
 main :: IO b
 main = do cfg0     <- getOpts
@@ -78,8 +80,12 @@ prune cfg cbs target info
   where 
     vs            = tgtVars $ spec info
 
+printConstraints :: [SubC] -> IO ()
+printConstraints cons = forM_ cons (print . consWeight)
+
 solveCs cfg target cgi info dc 
   = do let finfo = cgInfoFInfo info cgi
+       printConstraints ((hsCs cgi) ++ (sCs cgi))
        (r, sol) <- solve fx target (hqFiles info) finfo
        let names = checkedNames dc
        let warns = logErrors cgi

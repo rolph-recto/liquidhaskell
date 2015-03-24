@@ -319,100 +319,100 @@ splitS  :: SubC -> CG [([Stratum], [Stratum])]
 bsplitS :: SpecType -> SpecType -> CG [([Stratum], [Stratum])]
 ------------------------------------------------------------
 
-splitS (SubC γ (REx x _ t1) (REx x2 _ t2)) | x == x2
-  = splitS (SubC γ t1 t2)
+splitS (SubC γ (REx x _ t1) (REx x2 _ t2) exprs) | x == x2
+  = splitS (SubC γ t1 t2 exprs)
 
-splitS (SubC γ t1 (REx _ _ t2)) 
-  = splitS (SubC γ t1 t2)
+splitS (SubC γ t1 (REx _ _ t2) exprs) 
+  = splitS (SubC γ t1 t2 exprs)
 
-splitS (SubC γ (REx _ _ t1) t2) 
-  = splitS (SubC γ t1 t2)
+splitS (SubC γ (REx _ _ t1) t2 exprs) 
+  = splitS (SubC γ t1 t2 exprs)
 
-splitS (SubC γ (RAllE x _ t1) (RAllE x2 _ t2)) | x == x2
-  = splitS (SubC γ t1 t2)
+splitS (SubC γ (RAllE x _ t1) (RAllE x2 _ t2) exprs) | x == x2
+  = splitS (SubC γ t1 t2 exprs)
 
-splitS (SubC γ (RAllE _ _ t1) t2)
-  = splitS (SubC γ t1 t2)
+splitS (SubC γ (RAllE _ _ t1) t2 exprs)
+  = splitS (SubC γ t1 t2 exprs)
 
-splitS (SubC γ t1 (RAllE _ _ t2))
-  = splitS (SubC γ t1 t2)
+splitS (SubC γ t1 (RAllE _ _ t2) exprs)
+  = splitS (SubC γ t1 t2 exprs)
 
-splitS (SubC γ (RRTy _ _ _ t1) t2) 
-  = splitS (SubC γ t1 t2)
+splitS (SubC γ (RRTy _ _ _ t1) t2 exprs) 
+  = splitS (SubC γ t1 t2 exprs)
 
-splitS (SubC γ t1 (RRTy _ _ _ t2)) 
-  = splitS (SubC γ t1 t2)
+splitS (SubC γ t1 (RRTy _ _ _ t2) exprs) 
+  = splitS (SubC γ t1 t2 exprs)
 
-splitS (SubC γ t1@(RFun x1 r1 r1' _) t2@(RFun x2 r2 r2' _)) 
+splitS (SubC γ t1@(RFun x1 r1 r1' _) t2@(RFun x2 r2 r2' _) exprs) 
   =  do cs       <- bsplitS t1 t2 
-        cs'      <- splitS  (SubC γ r2 r1) 
+        cs'      <- splitS  (SubC γ r2 r1 exprs) 
         γ'       <- (γ, "splitC") += (x2, r2) 
         let r1x2' = r1' `F.subst1` (x1, F.EVar x2) 
-        cs''     <- splitS  (SubC γ' r1x2' r2') 
+        cs''     <- splitS  (SubC γ' r1x2' r2' exprs) 
         return    $ cs ++ cs' ++ cs''
 
-splitS (SubC γ t1@(RAppTy r1 r1' _) t2@(RAppTy r2 r2' _)) 
+splitS (SubC γ t1@(RAppTy r1 r1' _) t2@(RAppTy r2 r2' _) exprs) 
   =  do cs    <- bsplitS t1 t2 
-        cs'   <- splitS  (SubC γ r1 r2) 
-        cs''  <- splitS  (SubC γ r1' r2') 
-        cs''' <- splitS  (SubC γ r2' r1') 
+        cs'   <- splitS  (SubC γ r1 r2 exprs) 
+        cs''  <- splitS  (SubC γ r1' r2' exprs) 
+        cs''' <- splitS  (SubC γ r2' r1' exprs) 
         return $ cs ++ cs' ++ cs'' ++ cs'''
 
-splitS (SubC γ t1 (RAllP p t))
-  = splitS $ SubC γ t1 t'
+splitS (SubC γ t1 (RAllP p t) exprs)
+  = splitS $ SubC γ t1 t' exprs
   where t' = fmap (replacePredsWithRefs su) t
         su = (uPVar p, pVartoRConc p)
 
-splitS (SubC _ t1@(RAllP _ _) t2) 
+splitS (SubC _ t1@(RAllP _ _) t2 _) 
   = errorstar $ "Predicate in lhs of constrain:" ++ showpp t1 ++ "\n<:\n" ++ showpp t2
 
-splitS (SubC γ (RAllT α1 t1) (RAllT α2 t2))
+splitS (SubC γ (RAllT α1 t1) (RAllT α2 t2) exprs)
   |  α1 ==  α2 
-  = splitS $ SubC γ t1 t2
+  = splitS $ SubC γ t1 t2 exprs
   | otherwise   
-  = splitS $ SubC γ t1 t2' 
+  = splitS $ SubC γ t1 t2' exprs
   where t2' = subsTyVar_meet' (α2, RVar α1 mempty) t2
 
-splitS (SubC _ (RApp c1 _ _ _) (RApp c2 _ _ _)) | isClass c1 && c1 == c2 
+splitS (SubC _ (RApp c1 _ _ _) (RApp c2 _ _ _) _) | isClass c1 && c1 == c2 
   = return []
 
 
-splitS (SubC γ t1@(RApp _ _ _ _) t2@(RApp _ _ _ _))
+splitS (SubC γ t1@(RApp _ _ _ _) t2@(RApp _ _ _ _) exprs)
   = do (t1',t2') <- unifyVV t1 t2
        cs    <- bsplitS t1' t2'
        γ'    <- γ `extendEnvWithVV` t1' 
        let RApp c t1s r1s _ = t1'
        let RApp _ t2s r2s _ = t2'
        let tyInfo = rtc_info c
-       csvar  <-  splitsSWithVariance γ' t1s t2s $ varianceTyArgs tyInfo
-       csvar' <- rsplitsSWithVariance γ' r1s r2s $ variancePsArgs tyInfo
+       csvar  <-  splitsSWithVariance γ' t1s t2s exprs $ varianceTyArgs tyInfo
+       csvar' <- rsplitsSWithVariance γ' r1s r2s exprs $ variancePsArgs tyInfo
        return $ cs ++ csvar ++ csvar'
 
-splitS (SubC _ t1@(RVar a1 _) t2@(RVar a2 _)) 
+splitS (SubC _ t1@(RVar a1 _) t2@(RVar a2 _) _)
   | a1 == a2
   = bsplitS t1 t2
 
-splitS (SubC _ t1 t2) 
+splitS (SubC _ t1 t2 _)
   = errorstar $ "(Another Broken Test!!!) splitS unexpected: " ++ showpp t1 ++ "\n\n" ++ showpp t2
 
-splitS (SubR _ _ _)
+splitS (SubR _ _ _ _)
   = return []
 
-splitsSWithVariance γ t1s t2s variants 
-  = concatMapM (\(t1, t2, v) -> splitfWithVariance (\s1 s2 -> splitS (SubC γ s1 s2)) t1 t2 v) (zip3 t1s t2s variants)
+splitsSWithVariance γ t1s t2s exprs variants 
+  = concatMapM (\(t1, t2, v) -> splitfWithVariance (\s1 s2 -> splitS (SubC γ s1 s2 exprs)) t1 t2 v) (zip3 t1s t2s variants)
 
-rsplitsSWithVariance γ t1s t2s variants 
-  = concatMapM (\(t1, t2, v) -> splitfWithVariance (rsplitS γ) t1 t2 v) (zip3 t1s t2s variants)
+rsplitsSWithVariance γ t1s t2s exprs variants 
+  = concatMapM (\(t1, t2, v) -> splitfWithVariance (rsplitS γ exprs) t1 t2 v) (zip3 t1s t2s variants)
 
 bsplitS t1 t2 
   = return $ [(s1, s2)] 
   where [s1, s2]   = getStrata <$> [t1, t2]
 
-rsplitS γ (RProp s1 r1) (RProp s2 r2)
-  = splitS (SubC γ (F.subst su r1) r2)
+rsplitS γ exprs (RProp s1 r1) (RProp s2 r2)
+  = splitS (SubC γ (F.subst su r1) r2 exprs)
   where su = F.mkSubst [(x, F.EVar y) | ((x,_), (y,_)) <- zip s1 s2]
 
-rsplitS _ _ _
+rsplitS _ _ _ _
   = errorstar "rspliS Rpoly - RPropP"
   
 
@@ -427,39 +427,39 @@ splitfWithVariance f t1 t2 Contravariant = f t2 t1
 splitC :: SubC -> CG [FixSubC]
 ------------------------------------------------------------
 
-splitC (SubC γ (REx x tx t1) (REx x2 _ t2)) | x == x2
+splitC (SubC γ (REx x tx t1) (REx x2 _ t2) exprs) | x == x2
   = do γ' <- (γ, "addExBind 0") += (x, forallExprRefType γ tx)
-       splitC (SubC γ' t1 t2)
+       splitC (SubC γ' t1 t2 exprs)
 
-splitC (SubC γ t1 (REx x tx t2)) 
+splitC (SubC γ t1 (REx x tx t2) exprs) 
   = do γ' <- (γ, "addExBind 1") += (x, forallExprRefType γ tx)
        let xs  = grapBindsWithType tx γ
        let t2' = splitExistsCases x xs tx t2
-       splitC (SubC γ' t1 t2')
+       splitC (SubC γ' t1 t2' exprs)
 
 -- existential at the left hand side is treated like forall
-splitC (SubC γ (REx x tx t1) t2) 
+splitC (SubC γ (REx x tx t1) t2 exprs) 
   = do -- let tx' = traceShow ("splitC: " ++ showpp z) tx 
        γ' <- (γ, "addExBind 1") += (x, forallExprRefType γ tx)
-       splitC (SubC γ' t1 t2)
+       splitC (SubC γ' t1 t2 exprs)
 
-splitC (SubC γ (RAllE x tx t1) (RAllE x2 _ t2)) | x == x2
+splitC (SubC γ (RAllE x tx t1) (RAllE x2 _ t2) exprs) | x == x2
   = do γ' <- (γ, "addExBind 0") += (x, forallExprRefType γ tx)
-       splitC (SubC γ' t1 t2)
+       splitC (SubC γ' t1 t2 exprs)
 
 
-splitC (SubC γ (RAllE x tx t1) t2)
+splitC (SubC γ (RAllE x tx t1) t2 exprs)
   = do γ' <- (γ, "addExBind 2") += (x, forallExprRefType γ tx)
-       splitC (SubC γ' t1 t2)
+       splitC (SubC γ' t1 t2 exprs)
 
-splitC (SubC γ t1 (RAllE x tx t2))
+splitC (SubC γ t1 (RAllE x tx t2) exprs)
   = do γ' <- (γ, "addExBind 2") += (x, forallExprRefType γ tx)
-       splitC (SubC γ' t1 t2)
+       splitC (SubC γ' t1 t2 exprs)
 
-splitC (SubC γ (RRTy [(_, t)] _ OCons t1) t2)
+splitC (SubC γ (RRTy [(_, t)] _ OCons t1) t2 exprs)
   = do γ' <- foldM (\γ (x, t) -> γ `addSEnv` ("splitS", x,t)) γ (zip xs ts)
-       c1 <- splitC (SubC γ' t1' t2')
-       c2 <- splitC (SubC γ  t1  t2 )
+       c1 <- splitC (SubC γ' t1' t2' exprs)
+       c2 <- splitC (SubC γ  t1  t2 exprs)
        return $ c1 ++ c2
   where
     trep = toRTypeRep t
@@ -470,65 +470,65 @@ splitC (SubC γ (RRTy [(_, t)] _ OCons t1) t2)
 
 
 
-splitC (SubC γ (RRTy e r o t1) t2) 
+splitC (SubC γ (RRTy e r o t1) t2 exprs) 
   = do γ' <- foldM (\γ (x, t) -> γ `addSEnv` ("splitS", x,t)) γ e 
-       c1 <- splitC (SubR γ' o  r )
-       c2 <- splitC (SubC γ t1 t2)
+       c1 <- splitC (SubR γ' o  r exprs)
+       c2 <- splitC (SubC γ t1 t2 exprs)
        return $ c1 ++ c2
 
-splitC (SubC γ t1@(RFun x1 r1 r1' _) t2@(RFun x2 r2 r2' _)) 
+splitC (SubC γ t1@(RFun x1 r1 r1' _) t2@(RFun x2 r2 r2' _) exprs)
   =  do cs       <- bsplitC γ t1 t2 
-        cs'      <- splitC  (SubC γ r2 r1) 
+        cs'      <- splitC  (SubC γ r2 r1 exprs) 
         γ'       <- (γ, "splitC") += (x2, r2) 
         let r1x2' = r1' `F.subst1` (x1, F.EVar x2) 
-        cs''     <- splitC  (SubC γ' r1x2' r2') 
+        cs''     <- splitC  (SubC γ' r1x2' r2' exprs) 
         return    $ cs ++ cs' ++ cs''
 
-splitC (SubC γ t1@(RAppTy r1 r1' _) t2@(RAppTy r2 r2' _)) 
+splitC (SubC γ t1@(RAppTy r1 r1' _) t2@(RAppTy r2 r2' _) exprs)
   =  do cs    <- bsplitC γ t1 t2 
-        cs'   <- splitC  (SubC γ r1 r2) 
-        cs''  <- splitC  (SubC γ r1' r2') 
-        cs''' <- splitC  (SubC γ r2' r1') 
+        cs'   <- splitC  (SubC γ r1 r2 exprs) 
+        cs''  <- splitC  (SubC γ r1' r2' exprs) 
+        cs''' <- splitC  (SubC γ r2' r1' exprs) 
         return $ cs ++ cs' ++ cs'' ++ cs'''
 
-splitC (SubC γ t1 (RAllP p t))
-  = splitC $ SubC γ t1 t'
+splitC (SubC γ t1 (RAllP p t) exprs)
+  = splitC $ SubC γ t1 t' exprs
   where t' = fmap (replacePredsWithRefs su) t
         su = (uPVar p, pVartoRConc p)
 
-splitC (SubC _ t1@(RAllP _ _) t2) 
+splitC (SubC _ t1@(RAllP _ _) t2 _)
   = errorstar $ "Predicate in lhs of constraint:" ++ showpp t1 ++ "\n<:\n" ++ showpp t2
 
-splitC (SubC γ (RAllT α1 t1) (RAllT α2 t2))
+splitC (SubC γ (RAllT α1 t1) (RAllT α2 t2) exprs)
   |  α1 ==  α2 
-  = splitC $ SubC γ t1 t2
+  = splitC $ SubC γ t1 t2 exprs
   | otherwise   
-  = splitC $ SubC γ t1 t2' 
+  = splitC $ SubC γ t1 t2' exprs
   where t2' = subsTyVar_meet' (α2, RVar α1 mempty) t2
 
 
-splitC (SubC _ (RApp c1 _ _ _) (RApp c2 _ _ _)) | isClass c1 && c1 == c2
+splitC (SubC _ (RApp c1 _ _ _) (RApp c2 _ _ _) _) | isClass c1 && c1 == c2
   = return []
 
-splitC (SubC γ t1@(RApp _ _ _ _) t2@(RApp _ _ _ _))
+splitC (SubC γ t1@(RApp _ _ _ _) t2@(RApp _ _ _ _) exprs)
   = do (t1',t2') <- unifyVV t1 t2
        cs    <- bsplitC γ t1' t2'
        γ'    <- γ `extendEnvWithVV` t1' 
        let RApp c t1s r1s _ = t1'
        let RApp _ t2s r2s _ = t2'
        let tyInfo = rtc_info c
-       csvar  <-  splitsCWithVariance γ' t1s t2s $ varianceTyArgs tyInfo
-       csvar' <- rsplitsCWithVariance γ' r1s r2s $ variancePsArgs tyInfo
+       csvar  <-  splitsCWithVariance γ' t1s t2s exprs $ varianceTyArgs tyInfo
+       csvar' <- rsplitsCWithVariance γ' r1s r2s exprs $ variancePsArgs tyInfo
        return $ cs ++ csvar ++ csvar'
 
-splitC (SubC γ t1@(RVar a1 _) t2@(RVar a2 _)) 
+splitC (SubC γ t1@(RVar a1 _) t2@(RVar a2 _) _)
   | a1 == a2
   = bsplitC γ t1 t2
 
-splitC (SubC _ t1 t2) 
+splitC (SubC _ t1 t2 _)
   = errorstar $ "(Another Broken Test!!!) splitc unexpected: " ++ showpp t1 ++ "\n\n" ++ showpp t2
 
-splitC (SubR γ o r)
+splitC (SubR γ o r _)
   = do fg     <- pruneRefs <$> get 
        let r1' = if fg then pruneUnsortedReft γ'' r1 else r1
        return $ F.subC γ' F.PTrue r1' r2 Nothing tag ci
@@ -545,11 +545,11 @@ splitC (SubR γ o r)
     src = loc γ 
 
 
-splitsCWithVariance γ t1s t2s variants 
-  = concatMapM (\(t1, t2, v) -> splitfWithVariance (\s1 s2 -> (splitC (SubC γ s1 s2))) t1 t2 v) (zip3 t1s t2s variants)
+splitsCWithVariance γ t1s t2s exprs variants 
+  = concatMapM (\(t1, t2, v) -> splitfWithVariance (\s1 s2 -> (splitC (SubC γ s1 s2 exprs))) t1 t2 v) (zip3 t1s t2s variants)
 
-rsplitsCWithVariance γ t1s t2s variants 
-  = concatMapM (\(t1, t2, v) -> splitfWithVariance (rsplitC γ) t1 t2 v) (zip3 t1s t2s variants)
+rsplitsCWithVariance γ t1s t2s exprs variants 
+  = concatMapM (\(t1, t2, v) -> splitfWithVariance (rsplitC γ exprs) t1 t2 v) (zip3 t1s t2s variants)
 
 
 
@@ -596,15 +596,15 @@ unifyVV t1@(RApp _ _ _ _) t2@(RApp _ _ _ _)
 unifyVV _ _ 
   = errorstar $ "Constraint.Generate.unifyVV called on invalid inputs"
 
-rsplitC _ (RPropP _ _) (RPropP _ _) 
+rsplitC _ _ (RPropP _ _) (RPropP _ _)
   = errorstar "RefTypes.rsplitC on RPropP"
 
-rsplitC γ (RProp s1 r1) (RProp s2 r2)
+rsplitC γ exprs (RProp s1 r1) (RProp s2 r2)
   = do γ'  <-  foldM (++=) γ [("rsplitC1", x, ofRSort s) | (x, s) <- s2]
-       splitC (SubC γ' (F.subst su r1) r2)
+       splitC (SubC γ' (F.subst su r1) r2 exprs)
   where su = F.mkSubst [(x, F.EVar y) | ((x,_), (y,_)) <- zip s1 s2]
 
-rsplitC _ _ _  
+rsplitC _ _ _ _
   = errorstar "rsplit Rpoly - RPropP"
 
 
@@ -750,13 +750,13 @@ pushConsBind act
        return z
 
 addC :: SubC -> String -> CG ()  
-addC !c@(SubC γ t1 t2) _msg 
+addC !c@(SubC γ t1 t2 exprs) _msg 
   = do -- trace ("addC at " ++ show (loc γ) ++ _msg++ showpp t1 ++ "\n <: \n" ++ showpp t2 ) $
        modify $ \s -> s { hsCs  = c : (hsCs s) }
        bflag <- headDefault True . isBind <$> get
        sflag <- scheck                 <$> get 
        if bflag && sflag
-         then modify $ \s -> s {sCs = (SubC γ t2 t1) : (sCs s) }
+         then modify $ \s -> s {sCs = (SubC γ t2 t1 exprs) : (sCs s) }
          else return ()
   where 
     headDefault a []    = a
@@ -766,18 +766,18 @@ addC !c@(SubC γ t1 t2) _msg
 addC !c _msg 
   = modify $ \s -> s { hsCs  = c : (hsCs s) }
 
-addPost γ (RRTy e r OInv t) 
+addPost γ expr (RRTy e r OInv t) 
   = do γ' <- foldM (\γ (x, t) -> γ `addSEnv` ("addPost", x,t)) γ e 
-       addC (SubR γ' OInv r) "precondition" >> return t
+       addC (SubR γ' OInv r [(γ',expr)]) "precondition" >> return t
 
-addPost γ (RRTy e r OTerm t) 
+addPost γ expr (RRTy e r OTerm t) 
   = do γ' <- foldM (\γ (x, t) -> γ ++= ("addPost", x,t)) γ e 
-       addC (SubR γ' OTerm r) "precondition" >> return t
+       addC (SubR γ' OTerm r [(γ',expr)]) "precondition" >> return t
 
-addPost _ (RRTy _ _ OCons t) 
+addPost _ _ (RRTy _ _ OCons t) 
   = return t
 
-addPost _ t  
+addPost _ _ t  
   = return t
 
 addW   :: WfC -> CG ()  
@@ -1156,9 +1156,10 @@ consCB _ _ γ (NonRec x (App (Var w) (Type τ))) | isDictionary w
 
 consCB _ _ γ (NonRec x e)
   = do to  <- varTemplate γ (x, Nothing) 
-       to' <- consBind False γ (x, e, to) >>= (addPostTemplate γ)
+       to' <- consBind False γ (x, e, to) >>= (addPostTemplate γ e)
        extender γ (x, to')
 
+-- consBind :: Bool -> CGEnv -> (CoreBndr, Expr CoreBndr, Template SpecType) -> CG (Template SpecType)
 consBind isRec γ (x, e, Asserted spect) 
   = do let γ'         = (γ `setLoc` getSrcSpan x) `setBind` x
            (_,πs,_,_) = bkUniv spect
@@ -1190,7 +1191,9 @@ killSubst = fmap tx
   where
     tx (F.Reft (s, rs)) = F.Reft (s, map f rs)
     f (F.RKvar k _) = F.RKvar k mempty
-    f (F.RConc p)   = F.RConc p
+    -- have to add next line to make pattern matching exhaustive
+    f r             = r
+
 
 defAnn True  = AnnRDf
 defAnn False = AnnDef
@@ -1213,9 +1216,9 @@ unTemplate (Asserted t) = t
 unTemplate (Assumed t) = t
 unTemplate _ = errorstar "Constraint.Generate.unTemplate called on `Unknown`"
 
-addPostTemplate γ (Asserted t) = Asserted <$> addPost γ t
-addPostTemplate γ (Assumed  t) = Assumed  <$> addPost γ t
-addPostTemplate _ Unknown      = return Unknown 
+addPostTemplate γ expr (Asserted t) = Asserted <$> addPost γ expr t
+addPostTemplate γ expr (Assumed  t) = Assumed  <$> addPost γ expr t
+addPostTemplate _ _ Unknown      = return Unknown 
 
 safeFromAsserted _ (Asserted t) = t
 safeFromAsserted msg _ = errorstar $ "safeFromAsserted:" ++ msg 
@@ -1284,12 +1287,12 @@ cconsE γ (Tick tt e) t
 
 cconsE γ e@(Cast e' _) t     
   = do t' <- castTy γ (exprType e) e'
-       addC (SubC γ t' t) ("cconsE Cast" ++ showPpr e) 
+       addC (SubC γ t' t [(γ,e)]) ("cconsE Cast" ++ showPpr e) 
 
 cconsE γ e t
   = do te  <- consE γ e
-       te' <- instantiatePreds γ e te >>= addPost γ
-       addC (SubC γ te' t) ("cconsE" ++ showPpr e)
+       te' <- instantiatePreds γ e te >>= addPost γ e
+       addC (SubC γ te' t [(γ,e)]) ("cconsE" ++ showPpr e)
 
 
 splitConstraints (RRTy [(_, cs)] _ OCons t) 
@@ -1363,7 +1366,7 @@ consE γ e'@(App e a) | isDictionary a
               updateLocA πs (exprLoc e) te'' 
               let RFun x tx t _ = checkFun ("Non-fun App with caller ", e') te''
               pushConsBind      $ cconsE γ' a tx 
-              addPost γ'        $ maybe (checkUnbound γ' e' x t) (F.subst1 t . (x,)) (argExpr γ a)
+              addPost γ' e'     $ maybe (checkUnbound γ' e' x t) (F.subst1 t . (x,)) (argExpr γ a)
   where
     grepfunname (App x (Type _)) = grepfunname x
     grepfunname (Var x)          = x
@@ -1386,7 +1389,7 @@ consE γ e'@(App e a)
        updateLocA πs (exprLoc e) te'' 
        let RFun x tx t _ = checkFun ("Non-fun App with caller ", e') te''
        pushConsBind      $ cconsE γ' a tx 
-       addPost γ'        $ maybe (checkUnbound γ' e' x t) (F.subst1 t . (x,)) (argExpr γ a)
+       addPost γ' e'     $ maybe (checkUnbound γ' e' x t) (F.subst1 t . (x,)) (argExpr γ a)
 
 consE γ (Lam α e) | isTyVar α 
   = liftM (RAllT (rTyVar α)) (consE γ e) 
@@ -1482,7 +1485,7 @@ dropExists γ t            = return (γ, t)
 dropConstraints :: CGEnv -> SpecType -> CG SpecType
 dropConstraints γ (RRTy [(_, ct)] _ OCons t) 
   = do γ' <- foldM (\γ (x, t) -> γ `addSEnv` ("splitS", x,t)) γ (zip xs ts)
-       addC (SubC  γ' t1 t2)  "dropConstraints"
+       addC (SubC  γ' t1 t2 [])  "dropConstraints"
        dropConstraints γ t
   where
     trep = toRTypeRep ct
@@ -1664,9 +1667,9 @@ instance NFData FEnv where
   rnf (FE x1 _) = rnf x1
 
 instance NFData SubC where
-  rnf (SubC x1 x2 x3) 
+  rnf (SubC x1 x2 x3 _) 
     = rnf x1 `seq` rnf x2 `seq` rnf x3
-  rnf (SubR x1 _ x2) 
+  rnf (SubR x1 _ x2 _) 
     = rnf x1 `seq` rnf x2
 
 instance NFData Class where
