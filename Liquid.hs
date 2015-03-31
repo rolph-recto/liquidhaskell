@@ -4,7 +4,7 @@ import           Data.Maybe
 import           Data.Monoid      (mconcat, mempty)
 import           System.Exit 
 import           Control.Applicative ((<$>))
-import           Control.Monad
+-- import           Control.Monad
 import           Control.DeepSeq
 import           Text.PrettyPrint.HughesPJ    
 import           CoreSyn
@@ -26,14 +26,71 @@ import           Language.Haskell.Liquid.Constraint.ToFixpoint
 import           Language.Haskell.Liquid.Constraint.Types
 import           Language.Haskell.Liquid.TransformRec   
 import           Language.Haskell.Liquid.Annotate (mkOutput)
-import           Language.Haskell.Liquid.FaultLocal
+-- import           Language.Haskell.Liquid.FaultLocal
 
 main :: IO b
 main = do cfg0     <- getOpts
           res      <- mconcat <$> mapM (checkOne cfg0) (files cfg0)
           let ecode = resultExit $  {- traceShow "RESULT" $ -} o_result res
           -- putStrLn  $ "ExitCode: " ++ show ecode
-          exitWith ecode
+          -- exitWith ecode
+          case ecode of 
+            ExitSuccess   -> exitWith ecode
+            ExitFailure _ -> do
+              putStrLn "Do you want to perform fault localization (yes/no)?"
+              ans <- getLine
+              if ans == "yes"
+                then do
+                  consFL <- checkOneFL cfg0 $ head $ files cfg0
+                  putStrLn ("Constraints implicated: " ++ (show $ length consFL))
+                  exitWith ecode
+                else exitWith ecode
+
+checkOneFL cfg0 t = do
+  val <- getGhcInfo cfg0 t
+  case val of
+    Left _ -> return []
+    Right info -> liquidOneFL t info
+
+liquidOneFL target info = do
+  let cfg   = config $ spec info 
+  let cbs' = transformScope (cbs info)
+  dc <- prune cfg cbs' target info
+  let cgi   = {-# SCC "generateConstraints" #-} generateConstraints $! info {cbs = cbs'}
+  -- cgi `deepseq` 0
+  let cons = fixCs cgi
+  consFL <- deltaDebug cfg target cgi info dc cons []
+  return consFL
+
+-- test() for delta debugging algorithm
+-- intuitively, check if set of constraints cons induces
+-- failure of the refinement
+testDelta cfg target cgi info dc cons = do
+  putStrLn $ "testing delta: " ++ (show $ length cons)
+  let cgi' = cgi { fixCs = cons }
+  out <- solveCs cfg target cgi' info dc
+  let ecode = resultExit $ o_result out
+  case ecode of 
+    ExitSuccess -> return False
+    ExitFailure _ -> return True
+
+deltaDebug cfg target cgi info dc cons r = do
+  let (c1, c2) = splitAt ((length cons) `div` 2) cons
+  if length cons == 1
+    then return cons
+    else do
+      test1 <- testDelta cfg target cgi info dc (c1 ++ r)
+      if test1
+        then deltaDebug cfg target cgi info dc c1 r
+        else do
+          test2 <- testDelta cfg target cgi info dc (c2 ++ r)
+          if test2
+            then deltaDebug cfg target cgi info dc c2 r
+            else do
+              d1 <- deltaDebug cfg target cgi info dc c1 (c2 ++ r)
+              d2 <- deltaDebug cfg target cgi info dc c2 (c1 ++ r)
+              return (d1 ++ d2)
+    
 
 checkOne :: Config -> FilePath -> IO (Output Doc)
 checkOne cfg0 t = getGhcInfo cfg0 t >>= either errOut (liquidOne t)
@@ -80,12 +137,12 @@ prune cfg cbs target info
   where 
     vs            = tgtVars $ spec info
 
-printConstraints :: [SubC] -> IO ()
-printConstraints cons = forM_ cons (print . consWeight)
+-- printConstraints :: [SubC] -> IO ()
+-- printConstraints cons = forM_ cons (print . consWeight)
 
 solveCs cfg target cgi info dc 
-  = do let finfo = cgInfoFInfo info cgi
-       printConstraints ((hsCs cgi) ++ (sCs cgi))
+  = do
+       let finfo = cgInfoFInfo info cgi
        (r, sol) <- solve fx target (hqFiles info) finfo
        let names = checkedNames dc
        let warns = logErrors cgi
@@ -96,6 +153,9 @@ solveCs cfg target cgi info dc
     where 
        fx        = def { FC.solver = fromJust (smtsolver cfg), FC.real = real cfg }
        ferr s r  = fmap (tidyError s) $ result $ sinfo <$> r
+
+-- filterConstraints filt finfo =
+    -- finfo { cm = M.fromList $ filt $ M.toList $ cm finfo }
 
 
 -- writeCGI tgt cgi = {-# SCC "ConsWrite" #-} writeFile (extFileName Cgi tgt) str
