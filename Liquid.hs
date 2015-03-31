@@ -42,7 +42,8 @@ main = do cfg0     <- getOpts
               if ans == "yes"
                 then do
                   consFL <- checkOneFL cfg0 $ head $ files cfg0
-                  putStrLn ("Constraints implicated: " ++ (show $ length consFL))
+                  putStrLn ("# of constraints implicated: " ++ (show $ length consFL))
+                  mapM_ print consFL
                   exitWith ecode
                 else exitWith ecode
 
