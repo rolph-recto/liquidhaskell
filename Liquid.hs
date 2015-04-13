@@ -4,7 +4,7 @@ import           Data.Maybe
 import           Data.Monoid      (mconcat, mempty)
 import           System.Exit 
 import           Control.Applicative ((<$>))
--- import           Control.Monad
+import           Control.Monad
 import           Control.DeepSeq
 import           Text.PrettyPrint.HughesPJ    
 import           CoreSyn
@@ -43,7 +43,8 @@ main = do cfg0     <- getOpts
                 then do
                   consFL <- checkOneFL cfg0 $ head $ files cfg0
                   putStrLn ("# of constraints implicated: " ++ (show $ length consFL))
-                  mapM_ print consFL
+                  forM_ consFL (\cons -> do
+                    print $ ci_loc $ sinfo cons)
                   exitWith ecode
                 else exitWith ecode
 
