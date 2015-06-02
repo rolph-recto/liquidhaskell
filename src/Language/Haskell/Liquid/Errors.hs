@@ -118,15 +118,11 @@ instance PPrint Error where
   pprintTidy k = ppError k . fmap ppSpecTypeErr 
 
 ppSpecTypeErr   :: SpecType -> Doc
-ppSpecTypeErr t 
-  | isTrivial t = dt
-  | otherwise   = dt <+> dr 
-    where
-      dt        = rtypeDoc Lossy t'
-      dr        = maybe empty ((text "|" <+>) . pprint . everywhere (mkT noCasts)) ro 
-      (t', ro)  = stripRType t
-      noCasts (ECst x _) = x
-      noCasts e          = e
+ppSpecTypeErr
+  = rtypeDoc Lossy . tidySpecType Lossy . fmap (everywhere (mkT noCasts))
+  where
+    noCasts (ECst x _) = x
+    noCasts e          = e
 
 -- full = isNontrivialVV $ rTypeValueVar t = 
 
@@ -137,7 +133,7 @@ instance Exception Error
 instance Exception [Error]
 
 ------------------------------------------------------------------------
-ppError :: (PPrint a) => Tidy -> TError a -> Doc
+ppError :: (PPrint a, Show a) => Tidy -> TError a -> Doc
 ------------------------------------------------------------------------
 
 ppError k e  = ppError' k (pprintE $ errSpan e) e
@@ -149,7 +145,7 @@ sepVcat d ds = vcat $ intersperse d ds
 blankLine    = sizedText 5 " "
 
 ------------------------------------------------------------------------
-ppError' :: (PPrint a) => Tidy -> Doc -> TError a -> Doc
+ppError' :: (PPrint a, Show a) => Tidy -> Doc -> TError a -> Doc
 -----------------------------------------------------------------------
 
 ppError' _ dSp (ErrAssType _ OCons _ _)
@@ -172,6 +168,16 @@ ppError' Full  dSp (ErrSubType _ _ c tA tE)
               , nests 2 [ text "not a subtype of Required type" 
                         , text "VV :" <+> pprint tE]
               , nests 2 [ text "In Context"
+                        , pprint c                 ]]
+
+ppError' _  dSp (ErrFCrash _ _ c tA tE)
+  = dSp <+> text "Fixpoint Crash on Constraint"
+        $+$ sepVcat blankLine
+              [ nests 2 [ text "Inferred type" 
+                        , text "VV :" <+> pprint tA]
+              , nests 2 [ text "Required type" 
+                        , text "VV :" <+> pprint tE]
+              , nests 2 [ text "Context"
                         , pprint c                 ]]
 
 ppError' _ dSp (ErrParse _ _ e)
@@ -291,3 +297,4 @@ instance FromJSON Error where
 
 errSaved :: SrcSpan -> String -> Error
 errSaved x = ErrSaved x . text
+

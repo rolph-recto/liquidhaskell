@@ -15,20 +15,21 @@ module Language.Haskell.Liquid.CoreToLogic (
   ) where
 
 import GHC hiding (Located)
-import Var
+import Var 
 import Type 
 
 import qualified CoreSyn   as C
 import Literal
 import IdInfo
 
-import qualified Data.ByteString as B
+import Data.Text.Encoding
+
 import TysWiredIn 
 
 import Control.Applicative 
 
 import Language.Fixpoint.Misc
-import Language.Fixpoint.Names (dropModuleNames, isPrefixOfSym, propConName)
+import Language.Fixpoint.Names (dropModuleNames, propConName, isPrefixOfSym)
 import Language.Fixpoint.Types hiding (Def, R, simplify)
 import qualified Language.Fixpoint.Types as F
 import Language.Haskell.Liquid.GhcMisc
@@ -38,18 +39,17 @@ import Language.Haskell.Liquid.WiredIn
 import Language.Haskell.Liquid.RefType
 
 
-
 import qualified Data.HashMap.Strict as M
 
 import Data.Monoid
 
 
 logicType :: (Reftable r) => Type -> RRType r
-logicType τ = fromRTypeRep $ t{ty_res = res, ty_binds = binds, ty_args = args}
+logicType τ = fromRTypeRep $ t{ty_res = res, ty_binds = binds, ty_args = args, ty_refts = refts}
   where 
     t   = toRTypeRep $ ofType τ 
     res = mkResType $ ty_res t
-    (binds, args) =  unzip $ dropWhile isClassBind $ zip (ty_binds t) (ty_args t)
+    (binds, args, refts) = unzip3 $ dropWhile (isClassType.snd3) $ zip3 (ty_binds t) (ty_args t) (ty_refts t)
     
 
     mkResType t 
@@ -58,8 +58,6 @@ logicType τ = fromRTypeRep $ t{ty_res = res, ty_binds = binds, ty_args = args}
 
 isBool (RApp (RTyCon{rtc_tc = c}) _ _ _) = c == boolTyCon
 isBool _ = False
-
-isClassBind   = isClassType . snd
 
 {- strengthenResult type: the refinement depends on whether the result type is a Bool or not:
 
@@ -78,13 +76,13 @@ strengthenResult v
     fromRTypeRep $ rep{ty_res = res `strengthen` r', ty_binds = xs}
   where rep = toRTypeRep t
         res = ty_res rep
-        xs  = intSymbol (symbol ("x" :: String)) <$> [1..]
+        xs  = intSymbol (symbol ("x" :: String)) <$> [1..length $ ty_binds rep]
         r'  = U (exprReft (EApp f (mkA <$> vxs)))         mempty mempty
         r   = U (propReft (PBexp $ EApp f (mkA <$> vxs))) mempty mempty
-        vxs = dropWhile isClassBind $ zip xs (ty_args rep)
+        vxs = dropWhile (isClassType.snd) $ zip xs (ty_args rep)
         f   = dummyLoc $ dropModuleNames $ simplesymbol v
         t   = (ofType $ varType v) :: SpecType
-        mkA = \(x, t) -> if isBool t then EApp (dummyLoc propConName) [(EVar x)] else EVar x
+        mkA = \(x, _) -> EVar x -- if isBool t then EApp (dummyLoc propConName) [(EVar x)] else EVar x
 
 
 simplesymbol = symbol . getName
@@ -126,30 +124,38 @@ getState = LM $ Left
 runToLogic lmap ferror (LM m) 
   = m $ LState {symbolMap = lmap, mkError = ferror}
 
-coreToDef :: LocSymbol -> Var -> C.CoreExpr ->  LogicM [Def DataCon]
-coreToDef x _ e = go $ inline_preds $ simplify e
+coreToDef :: Reftable r => LocSymbol -> Var -> C.CoreExpr ->  LogicM [Def (RRType r) DataCon]
+coreToDef x _ e = go [] $ inline_preds $ simplify e
   where
-    go (C.Lam _  e) = go e
-    go (C.Tick _ e) = go e
-    go (C.Case _ _ t alts) 
-      | eqType t boolTy = mapM goalt_prop alts
-      | otherwise       = mapM goalt      alts
-    go _                = throw "Measure Functions should have a case at top level"
+    go args (C.Lam  x e) = go (x:args) e
+    go args (C.Tick _ e) = go args e
+    go args (C.Case _ _ t alts) 
+      | eqType t boolTy  = mapM (goalt_prop (reverse $ tail args) (head args)) alts
+      | otherwise        = mapM (goalt      (reverse $ tail args) (head args)) alts
+    go _ _               = throw "Measure Functions should have a case at top level"
 
-    goalt ((C.DataAlt d), xs, e)      = ((Def x d (symbol <$> xs)) . E) <$> coreToLogic e
-    goalt alt = throw $ "Bad alternative" ++ showPpr alt
+    goalt args dx ((C.DataAlt d), xs, e)      
+      = ((Def x (toArgs id args) d (Just $ ofType $ varType dx) (toArgs Just xs)) . E) 
+        <$> coreToLogic e
+    goalt _ _ alt
+       = throw $ "Bad alternative" ++ showPpr alt
 
-    goalt_prop ((C.DataAlt d), xs, e) = ((Def x d (symbol <$> xs)) . P) <$> coreToPred  e
-    goalt_prop alt = throw $ "Bad alternative" ++ showPpr alt
+    goalt_prop args dx ((C.DataAlt d), xs, e) 
+      = ((Def x (toArgs id args) d (Just $ ofType $ varType dx) (toArgs Just xs)) . P) 
+        <$> coreToPred  e
+    goalt_prop _ _ alt 
+      = throw $ "Bad alternative" ++ showPpr alt
+
+    toArgs f args = [(symbol x, f $ ofType $ varType x) | x <- args]
 
     inline_preds = inline (eqType boolTy . varType)
 
-coreToFun :: LocSymbol -> Var -> C.CoreExpr ->  LogicM ([Symbol], Either Pred Expr)
+coreToFun :: LocSymbol -> Var -> C.CoreExpr ->  LogicM ([Var], Either Pred Expr)
 coreToFun _ v e = go [] $ inline_preds $ simplify e
   where
     go acc (C.Lam x e)  | isTyVar    x = go acc e
     go acc (C.Lam x e)  | isErasable x = go acc e
-    go acc (C.Lam x e)  = go (symbol x : acc) e
+    go acc (C.Lam x e)  = go (x:acc) e
     go acc (C.Tick _ e) = go acc e
     go acc e            | eqType rty boolTy 
                         = (reverse acc,) . Left  <$> coreToPred e  
@@ -172,6 +178,8 @@ coreToPred (C.Var x)
   = return PFalse
   | x == trueDataConId
   = return PTrue
+  | eqType boolTy (varType x)
+  = return $ PBexp $ EApp (dummyLoc propConName) [(EVar $ symbol x)]
 coreToPred p@(C.App _ _) = toPredApp p  
 coreToPred e
   = PBexp <$> coreToLogic e  
@@ -226,6 +234,8 @@ toPredApp p
       = POr <$> mapM coreToPred [e1, e2]
       | val f == symbol ("&&" :: String)
       = PAnd <$> mapM coreToPred [e1, e2]
+      | val f == symbol ("==>" :: String)
+      = PImp <$> coreToPred e1 <*> coreToPred e2
     go f es
       | val f == symbol ("or" :: String)
       = POr <$> mapM coreToPred es
@@ -286,6 +296,7 @@ splitArgs e = (f, reverse es)
     go (C.App f e) = (f', e:es) where (f', es) = go f
     go f           = (f, [])
 
+tosymbol (C.Var c) | isDataConId  c = return $ dummyLoc $ symbol c 
 tosymbol (C.Var x) = return $ dummyLoc $ simpleSymbolVar x
 tosymbol  e        = throw ("Bad Measure Definition:\n" ++ showPpr e ++ "\t cannot be applied")
 
@@ -308,15 +319,7 @@ mkLit _                = Nothing -- ELit sym sort
 
 mkI                    = Just . ECon . I  
 mkR                    = Just . ECon . F.R . fromRational
-mkS s                  = Just (ELit  (dummyLoc $ symbol s) stringSort)
-
-
-stringSort = rTypeSort M.empty (ofType stringTy :: RSort)
--- stringSort = rTypeSort M.empty (ofType stringTy :: RSort)
-
-
-instance Symbolic B.ByteString where
-  symbol x = symbol $ init $ tail $ show x
+mkS                    = Just . ESym . SL  . decodeUtf8
 
 ignoreVar i = simpleSymbolVar i `elem` ["I#"]
 
@@ -324,9 +327,9 @@ ignoreVar i = simpleSymbolVar i `elem` ["I#"]
 simpleSymbolVar  = dropModuleNames . symbol . showPpr . getName
 simpleSymbolVar' = symbol . showPpr . getName
 
-isErasable v   = isPrefixOfSym (symbol ("$" :: String)) (simpleSymbolVar v)
+isErasable v = isPrefixOfSym (symbol ("$" :: String)) (simpleSymbolVar v)
 
-isDead = isDeadOcc . occInfo . idInfo
+isDead     = isDeadOcc . occInfo . idInfo
 
 class Simplify a where
   simplify :: a -> a 
@@ -347,12 +350,18 @@ instance Simplify C.CoreExpr where
     = C.App (simplify e1) (simplify e2)
   simplify (C.Lam x e) | isTyVar x 
     = simplify e
+  simplify (C.Lam x e) | isErasable x 
+    = simplify e
   simplify (C.Lam x e) 
     = C.Lam x (simplify e)
+  simplify (C.Let (C.NonRec x _) e) | isErasable x
+    = simplify e 
+  simplify (C.Let (C.Rec xes) e)    | all (isErasable . fst) xes
+    = simplify e 
   simplify (C.Let xes e) 
     = C.Let (simplify xes) (simplify e)
   simplify (C.Case e x t alts) 
-    = C.Case (simplify e) x t (simplify <$> alts)
+    = C.Case (simplify e) x t (filter (not . isUndefined) (simplify <$> alts))
   simplify (C.Cast e _)    
     = simplify e
   simplify (C.Tick _ e) 
@@ -374,6 +383,15 @@ instance Simplify C.CoreExpr where
   inline _ (C.Lit l)           = C.Lit l
   inline _ (C.Coercion c)      = C.Coercion c
   inline _ (C.Type t)          = C.Type t
+
+isUndefined (_, _, e) = isUndefinedExpr e
+  where 
+   -- auto generated undefined case: (\_ -> (patError @type "error message")) void
+   isUndefinedExpr (C.App (C.Var x) _) | (show x) `elem` perrors = True
+   -- otherwise 
+   isUndefinedExpr _ = False 
+
+   perrors = ["Control.Exception.Base.patError"]
 
 
 instance Simplify C.CoreBind where

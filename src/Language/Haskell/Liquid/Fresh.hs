@@ -26,14 +26,16 @@ instance Freshable m Integer => Freshable m Symbol where
   fresh = tempSymbol "x" <$> fresh
 
 instance Freshable m Integer => Freshable m Refa where
-  fresh = ((`RKvar` mkSubst []) . intKvar) <$> fresh
+  fresh  = kv <$> fresh
+    where
+      kv = Refa . (`PKVar` mempty) . intKvar
 
 instance Freshable m Integer => Freshable m [Refa] where
   fresh = single <$> fresh
 
 instance Freshable m Integer => Freshable m Reft where
   fresh                = errorstar "fresh Reft"
-  true    (Reft (v,_)) = return $ Reft (v, [])
+  true    (Reft (v,_)) = return $ Reft (v, mempty)
   refresh (Reft (_,_)) = (Reft .) . (,) <$> freshVV <*> fresh
     where
       freshVV          = vv . Just <$> fresh
@@ -85,6 +87,9 @@ trueRefType (RAllE y ty tx)
        tx' <- true tx
        return $ RAllE y' ty' (tx' `subst1` (y, EVar y')) 
 
+trueRefType (RRTy e o r t)
+  = RRTy e o r <$> trueRefType t 
+
 trueRefType t 
   = return t
 
@@ -122,6 +127,9 @@ refreshRefType (RAllE y ty tx)
        ty' <- refresh ty
        tx' <- refresh tx
        return $ RAllE y' ty' (tx' `subst1` (y, EVar y')) 
+
+refreshRefType (RRTy e o r t)
+  = RRTy e o r <$> refreshRefType t 
 
 refreshRefType t
   = return t

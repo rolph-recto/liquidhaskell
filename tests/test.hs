@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP  #-}
 {-# LANGUAGE DeriveDataTypeable  #-}
 {-# LANGUAGE DoAndIfThenElse     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -14,24 +15,29 @@ import System.Directory
 import System.Exit
 import System.FilePath
 import System.IO
+import System.IO.Error
 -- import qualified System.Posix as Posix
 import System.Process
 import Test.Tasty
 import Test.Tasty.HUnit
-import Test.Tasty.Ingredients.Rerun
 import Test.Tasty.Options
 import Test.Tasty.Runners
 import Text.Printf
 
+import Test.Tasty.Ingredients.Rerun
+
+testRunner = rerunningTests [ listingTests, consoleTestReporter ]
+
 main :: IO ()
-main = run =<< tests 
+main = run =<< tests
   where
-    run   = defaultMainWithIngredients [ 
-                rerunningTests   [ listingTests, consoleTestReporter ]
+    run   = defaultMainWithIngredients [
+                testRunner
               , includingOptions [ Option (Proxy :: Proxy NumThreads)
+                                 , Option (Proxy :: Proxy LiquidOpts)
                                  , Option (Proxy :: Proxy SmtSolver) ]
               ]
-    
+
     tests = group "Tests" [ unitTests, benchTests ]
 
 data SmtSolver = Z3 | CVC4 deriving (Show, Read, Eq, Ord, Typeable)
@@ -46,24 +52,36 @@ instance IsOption SmtSolver where
       <> help (untag (optionHelp :: Tagged SmtSolver String))
       )
 
-unitTests  
-  = group "Unit" [ 
+newtype LiquidOpts = LO String deriving (Show, Read, Eq, Ord, Typeable)
+instance IsOption LiquidOpts where
+  defaultValue = LO ""
+  parseValue = Just . LO
+  optionName = return "liquid-opts"
+  optionHelp = return "Extra options to pass to LiquidHaskell"
+  optionCLParser =
+    option (fmap LO str)
+      (  long (untag (optionName :: Tagged LiquidOpts String))
+      <> help (untag (optionHelp :: Tagged LiquidOpts String))
+      )
+
+unitTests
+  = group "Unit" [
       testGroup "pos"         <$> dirTests "tests/pos"                            []           ExitSuccess
     , testGroup "neg"         <$> dirTests "tests/neg"                            []           (ExitFailure 1)
-    , testGroup "crash"       <$> dirTests "tests/crash"                          []           (ExitFailure 2) 
+    , testGroup "crash"       <$> dirTests "tests/crash"                          []           (ExitFailure 2)
     , testGroup "parser/pos"  <$> dirTests "tests/parser/pos"                     []           ExitSuccess
     , testGroup "error/crash" <$> dirTests "tests/error_messages/crash"           []           (ExitFailure 2)
    ]
 
 benchTests
-  = group "Benchmarks" [ 
+  = group "Benchmarks" [
       testGroup "text"        <$> dirTests "benchmarks/text-0.11.2.3"             textIgnored  ExitSuccess
     , testGroup "bytestring"  <$> dirTests "benchmarks/bytestring-0.9.2.1"        []           ExitSuccess
     , testGroup "esop"        <$> dirTests "benchmarks/esop2013-submission"       ["Base0.hs"] ExitSuccess
     , testGroup "vect-algs"   <$> dirTests "benchmarks/vector-algorithms-0.5.4.2" []           ExitSuccess
     , testGroup "hscolour"    <$> dirTests "benchmarks/hscolour-1.20.0.0"         []           ExitSuccess
     , testGroup "icfp_pos"    <$> dirTests "benchmarks/icfp15/pos"                []           ExitSuccess
-    , testGroup "icfp_neg"    <$> dirTests "benchmarks/icfp15/neg"                ["RIO.hs", "DataBase.hs", "DataBase.Domain.hs"]           (ExitFailure 1)
+    , testGroup "icfp_neg"    <$> dirTests "benchmarks/icfp15/neg"                ["RIO.hs", "DataBase.hs"]           (ExitFailure 1)
     ]
 
 ---------------------------------------------------------------------------
@@ -81,7 +99,7 @@ isTest f = takeExtension f == ".hs" -- `elem` [".hs", ".lhs"]
 mkTest :: ExitCode -> FilePath -> FilePath -> TestTree
 ---------------------------------------------------------------------------
 mkTest code dir file
-  = askOption $ \(smt :: SmtSolver) -> testCase file $ do
+  = askOption $ \(smt :: SmtSolver) -> askOption $ \(opts :: LiquidOpts) -> testCase file $ do
       if test `elem` knownToFail smt
       then do
         printf "%s is known to fail with %s: SKIPPING" test (show smt)
@@ -90,9 +108,10 @@ mkTest code dir file
         createDirectoryIfMissing True $ takeDirectory log
         liquid <- canonicalizePath "dist/build/liquid/liquid"
         withFile log WriteMode $ \h -> do
-          let cmd     = testCmd liquid dir file smt
+          let cmd     = testCmd liquid dir file smt opts
           (_,_,_,ph) <- createProcess $ (shell cmd) {std_out = UseHandle h, std_err = UseHandle h}
           c          <- waitForProcess ph
+          renameFile log $ log <.> (if code == c then "pass" else "fail")
           assertEqual "Wrong exit code" code c
   where
     test = dir </> file
@@ -104,10 +123,10 @@ knownToFail CVC4 = [ "tests/pos/linspace.hs", "tests/pos/RealProps.hs", "tests/p
 knownToFail Z3   = [ "tests/pos/linspace.hs" ]
 
 ---------------------------------------------------------------------------
-testCmd :: FilePath -> FilePath -> FilePath -> SmtSolver -> String
+testCmd :: FilePath -> FilePath -> FilePath -> SmtSolver -> LiquidOpts -> String
 ---------------------------------------------------------------------------
-testCmd liquid dir file smt 
-  = printf "cd %s && %s --verbose --smtsolver %s %s" dir liquid (show smt) file
+testCmd liquid dir file smt (LO opts)
+  = printf "cd %s && %s --verbose --smtsolver %s %s %s" dir liquid (show smt) file opts
 
 
 textIgnored = [ "Data/Text/Axioms.hs"
@@ -156,7 +175,7 @@ group n xs = testGroup n <$> sequence xs
 walkDirectory :: FilePath -> IO [FilePath]
 ----------------------------------------------------------------------------------------
 walkDirectory root
-  = do (ds,fs) <- partitionM doesDirectoryExist . candidates =<< getDirectoryContents root
+  = do (ds,fs) <- partitionM doesDirectoryExist . candidates =<< (getDirectoryContents root `catchIOError` const (return []))
        (fs++) <$> concatMapM walkDirectory ds
   where
     candidates fs = [root </> f | f <- fs, not (isExtSeparator (head f))]
@@ -175,5 +194,3 @@ partitionM f = go [] []
 concatMapM :: Applicative m => (a -> m [b]) -> [a] -> m [b]
 concatMapM f []     = pure []
 concatMapM f (x:xs) = (++) <$> f x <*> concatMapM f xs
-
-

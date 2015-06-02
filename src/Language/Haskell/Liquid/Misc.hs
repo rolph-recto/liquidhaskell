@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP                       #-}
 {-# LANGUAGE TupleSections             #-}
 
 module Language.Haskell.Liquid.Misc where
@@ -35,7 +36,13 @@ safeIndex err n ls
 safeFromJust _  (Just x) = x
 safeFromJust err _        = errorstar err
 
+fst4 (a,_,_,_) = a
+snd4 (_,b,_,_) = b
+
+mapFourth4 f (x, y, z, w) = (x, y, z, f w)
+
 addFst3   a (b, c) = (a, b, c)
+addThd3   c (a, b) = (a, b, c)
 dropFst3 (_, x, y) = (x, y)
 dropThd3 (x, y, _) = (x, y)
 
@@ -58,9 +65,15 @@ third3 f (a,b,c) = (a,b,f c)
 zip4 (x1:xs1) (x2:xs2) (x3:xs3) (x4:xs4) = (x1, x2, x3, x4) : (zip4 xs1 xs2 xs3 xs4) 
 zip4 _ _ _ _                             = []
 
-getIncludeDir      = dropFileName <$> (getDataFileName $ "include" </> "Prelude.spec")
+#if __GLASGOW_HASKELL__ < 710
+ghc = "ghc-7.8"
+#else
+ghc = "ghc-7.10"
+#endif
+
+getIncludeDir      = dropFileName <$> getDataFileName ("include" </> "Prelude.spec")
 getCssPath         = getDataFileName $ "syntax" </> "liquid.css"
-getCoreToLogicPath = getDataFileName $ "include" </> "CoreToLogic.lg"
+getCoreToLogicPath = fmap (</> "CoreToLogic.lg") getIncludeDir
 
 
 maximumWithDefault zero [] = zero
@@ -73,6 +86,10 @@ maximumWithDefault _    xs = maximum xs
 safeZipWithError msg (x:xs) (y:ys) = (x,y) : safeZipWithError msg xs ys
 safeZipWithError _   []     []     = []
 safeZipWithError msg _      _      = errorstar msg
+
+safeZip3WithError msg (x:xs) (y:ys) (z:zs) = (x,y,z) : safeZip3WithError msg xs ys zs
+safeZip3WithError _   []     []     []     = []
+safeZip3WithError msg _      _      _      = errorstar msg
 
 mapNs ns f xs = foldl (\xs n -> mapN n f xs) xs ns
 

@@ -52,7 +52,7 @@ data CGEnv
         } -- deriving (Data, Typeable)
 
 
-data LConstraint = LC [SpecType]
+data LConstraint = LC [[(F.Symbol, SpecType)]]
 
 
 instance PPrint CGEnv where
@@ -261,6 +261,7 @@ data FEnv = FE { fe_binds :: !F.IBindEnv      -- ^ Integer Keys for Fixpoint Env
 insertFEnv (FE benv env) ((x, t), i)
   = FE (F.insertsIBindEnv [i] benv) (F.insertSEnv x t env)
 
+insertsFEnv :: FEnv -> [((F.Symbol, F.Sort), F.BindId)] -> FEnv
 insertsFEnv = L.foldl' insertFEnv
 
 initFEnv init = FE F.emptyIBindEnv $ F.fromListSEnv (wiredSortedSyms ++ init)

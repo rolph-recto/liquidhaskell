@@ -7,25 +7,25 @@ import GHC.Num
 import GHC.Real
 import GHC.Word
 
+import Data.Foldable
 import Data.Maybe
 import GHC.Exts
 
 
 GHC.Exts.D# :: x:_ -> {v:_ | v = x}
 
-assume GHC.Base..               :: forall< p :: xx:b -> c -> Prop
-                                         , q :: yy:a -> b -> Prop>.
-                                      f:(x:b -> c<p x>) ->
-                                      g:(y:a -> b<q y>) ->
-                                      x:a ->
-                                      exists[z:b<q x>].c<p z>
+assume GHC.Base.. :: forall <p :: b -> c -> Prop, q :: a -> b -> Prop, r :: a -> c -> Prop>. 
+                     {xcmp::a, wcmp::b<q xcmp> |- c<p wcmp> <: c<r xcmp>}
+                     (ycmp:b -> c<p ycmp>)
+                  -> (zcmp:a -> b<q zcmp>)
+                  ->  xcmp:a -> c<r xcmp>
 assume GHC.Integer.smallInteger :: x:GHC.Prim.Int#
                                 -> { v:GHC.Integer.Type.Integer |
                                      v = (x :: int) }
 assume GHC.Num.+                :: (GHC.Num.Num a) => x:a -> y:a -> {v:a | v = x + y }
 assume GHC.Num.-                :: (GHC.Num.Num a) => x:a -> y:a -> {v:a | v = x - y }
 
-embed GHC.Types.Double as real
+embed GHC.Types.Double          as real
 embed GHC.Integer.Type.Integer  as int
 
 type GeInt N = {v: GHC.Types.Int | v >= N }

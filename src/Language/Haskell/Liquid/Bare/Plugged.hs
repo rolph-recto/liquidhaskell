@@ -25,7 +25,8 @@ import Data.Monoid
 import qualified Data.HashMap.Strict as M
 
 import Language.Fixpoint.Names (dummySymbol)
-import Language.Fixpoint.Types (Reft(..), TCEmb)
+import Language.Fixpoint.Types (mapPredReft, pAnd, conjuncts, Refa (..), TCEmb)
+-- import Language.Fixpoint.Types (traceFix, showFix)
 
 import Language.Haskell.Liquid.GhcMisc (sourcePosSrcSpan)
 import Language.Haskell.Liquid.RefType (addTyConInfo, ofType, rVar, rTyVar, subts, toType, uReft)
@@ -47,19 +48,19 @@ makePluggedAsmSigs embs tcEnv sigs
       (x,) <$> plugHoles embs tcEnv x r τ t
 
 makePluggedDataCons embs tcEnv dcs
-  = forM dcs $ \(dc, Loc l dcp) -> do
+  = forM dcs $ \(dc, Loc l l' dcp) -> do
        let (das, _, dts, dt) = dataConSig dc
-       tyArgs <- zipWithM (\t1 (x,t2) -> 
-                   (x,) . val <$> plugHoles embs tcEnv (dataConName dc) killHoles t1 (Loc l t2)) 
+       tyArgs <- zipWithM (\t1 (x,t2) ->
+                   (x,) . val <$> plugHoles embs tcEnv (dataConName dc) killHoles t1 (Loc l l' t2))
                  dts (reverse $ tyArgs dcp)
-       tyRes <- val <$> plugHoles embs tcEnv (dataConName dc) killHoles dt (Loc l (tyRes dcp))
-       return (dc, Loc l dcp { freeTyVars = map rTyVar das
-                             , freePred = map (subts (zip (freeTyVars dcp) (map (rVar :: TyVar -> RSort) das))) (freePred dcp)
-                             , tyArgs = reverse tyArgs
-                             , tyRes = tyRes})
+       tyRes <- val <$> plugHoles embs tcEnv (dataConName dc) killHoles dt (Loc l l' (tyRes dcp))
+       return (dc, Loc l l' dcp { freeTyVars = map rTyVar das
+                                , freePred   = map (subts (zip (freeTyVars dcp) (map (rVar :: TyVar -> RSort) das))) (freePred dcp)
+                                , tyArgs     = reverse tyArgs
+                                , tyRes      = tyRes})
 
 
-plugHoles tce tyi x f t (Loc l st) 
+plugHoles tce tyi x f t (Loc l l' st)
   = do tyvsmap <- case runMapTyVars (mapTyVars (toType rt') st'') initvmap of
                     Left e -> throwError e
                     Right s -> return $ vmap s
@@ -67,7 +68,7 @@ plugHoles tce tyi x f t (Loc l st)
            st''' = subts su st''
            ps'   = fmap (subts su') <$> ps
            su'   = [(y, RVar (rTyVar x) ()) | (x, y) <- tyvsmap] :: [(RTyVar, RSort)]
-       Loc l . mkArrow αs ps' (ls1 ++ ls2) [] . pushCls cs' <$> go rt' st'''
+       Loc l l' . mkArrow αs ps' (ls1 ++ ls2) [] . makeCls cs' <$> go rt' st'''
   where
     (αs, _, ls1, rt)  = bkUniv (ofType t :: SpecType)
     (cs, rt')         = bkClass rt
@@ -75,13 +76,13 @@ plugHoles tce tyi x f t (Loc l st)
     (_, ps, ls2, st') = bkUniv st
     (_, st'')         = bkClass st'
     cs'               = [(dummySymbol, RApp c t [] mempty) | (c,t) <- cs]
-    initvmap          = initMapSt $ ErrMismatch (sourcePosSrcSpan l) (pprint x) t st
+    initvmap          = initMapSt $ ErrMismatch (sourcePosSrcSpan l) (pprint x) t (toType st)
 
     go :: SpecType -> SpecType -> BareM SpecType
     go t                (RHole r)          = return $ (addHoles t') { rt_reft = f r }
       where
         t'       = everywhere (mkT $ addRefs tce tyi) t
-        addHoles = fmap (const $ f $ uReft ("v", [hole]))
+        addHoles = fmap (const $ f $ uReft ("v", Refa hole))
     go (RVar _ _)       v@(RVar _ _)       = return v
     go (RFun _ i o _)   (RFun x i' o' r)   = RFun x <$> go i i' <*> go o o' <*> return r
     go (RAllT _ t)      (RAllT a t')       = RAllT a <$> go t t'
@@ -98,8 +99,7 @@ plugHoles tce tyi x f t (Loc l st)
     -- problem to the user.
     go _                st                 = return st
 
-    pushCls cs (RRTy e r o t) = RRTy e r o (pushCls cs t)
-    pushCls cs t              = foldr (uncurry rFun) t cs 
+    makeCls cs t              = foldr (uncurry rFun) t cs
 
 addRefs :: TCEmb TyCon
      -> M.HashMap TyCon RTyCon
@@ -122,5 +122,11 @@ maybeTrue x target exports r
     name        = getName x
     notExported = not $ getName x `elemNameSet` exports
 
-killHoles r@(U (Reft (v,rs)) _ _) = r { ur_reft = Reft (v, filter (not . isHole) rs) }
+-- killHoles r@(U (Reft (v, rs)) _ _) = r { ur_reft = Reft (v, filter (not . isHole) rs) }
+
+killHoles ur = ur { ur_reft = tx $ ur_reft ur }
+  where
+    tx r = {- traceFix ("killholes: r = " ++ showFix r) $ -} mapPredReft dropHoles r
+    dropHoles    = pAnd . filter (not . isHole) . conjuncts
+
 

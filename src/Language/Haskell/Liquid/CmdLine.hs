@@ -43,12 +43,13 @@ import Data.Monoid
 import           System.FilePath                     (dropFileName, isAbsolute,
                                                       takeDirectory, (</>))
 
-import Language.Fixpoint.Config            hiding (Config, real)
+import Language.Fixpoint.Config            hiding (Config, real, native, getOpts)
 import Language.Fixpoint.Files
 import Language.Fixpoint.Misc
 import Language.Fixpoint.Names             (dropModuleNames)
 import Language.Fixpoint.Types
 import Language.Haskell.Liquid.Annotate
+import Language.Haskell.Liquid.GhcMisc
 import Language.Haskell.Liquid.Misc
 import Language.Haskell.Liquid.PrettyPrint
 import Language.Haskell.Liquid.Types       hiding (config, name, typ)
@@ -82,6 +83,8 @@ config = cmdArgsMode $ Config {
  , real
     = def
           &= help "Supports real number arithmetic"
+ , native
+    = def &= help "Use native (Haskell) fixpoint constraint solver"
 
  , binders
     = def &= help "Check a specific set of binders"
@@ -144,9 +147,6 @@ config = cmdArgsMode $ Config {
           &= typ "OPTION"
           &= help "Tell GHC to compile and link against these files"
 
- -- , verbose
- --    = def &= help "Generate Verbose Output"
- --          &= name "verbose-output"
 
  } &= verbosity
    &= program "liquid"
@@ -211,9 +211,10 @@ envCfg = do so <- lookupEnv "LIQUIDHASKELL_OPTS"
               Nothing -> return mempty
               Just s  -> parsePragma $ envLoc s
          where
-            envLoc  = Loc (newPos "ENVIRONMENT" 0 0)
+            envLoc  = Loc l l
+            l       = newPos "ENVIRONMENT" 0 0
 
-copyright = "LiquidHaskell Copyright 2009-14 Regents of the University of California. All Rights Reserved.\n"
+copyright = "LiquidHaskell Copyright 2009-15 Regents of the University of California. All Rights Reserved.\n"
 
 mkOpts :: Config -> IO Config
 mkOpts cfg
@@ -221,7 +222,7 @@ mkOpts cfg
        -- idirs' <- if null (idirs cfg) then single <$> getIncludeDir else return (idirs cfg)
        id0 <- getIncludeDir
        return  $ cfg { files = files' }
-                     { idirs = (dropFileName <$> files') ++ [id0] ++ idirs cfg }
+                     { idirs = (dropFileName <$> files') ++ [id0 </> gHC_VERSION, id0] ++ idirs cfg }
                               -- tests fail if you flip order of idirs'
 
 ---------------------------------------------------------------------------------------
@@ -246,12 +247,13 @@ parsePragma s = withArgs [val s] $ cmdArgsRun config
 
 
 instance Monoid Config where
-  mempty        = Config def def def def def def def def def def def def def def def 2 def def def def def
+  mempty        = Config def def def def def def def def def def def def def def def def 2 def def def def def
   mappend c1 c2 = Config { files          = sortNub $ files c1   ++     files          c2
                          , idirs          = sortNub $ idirs c1   ++     idirs          c2
                          , fullcheck      = fullcheck c1         ||     fullcheck      c2
                          , real           = real      c1         ||     real           c2
                          , diffcheck      = diffcheck c1         ||     diffcheck      c2
+                         , native         = native    c1         ||     native         c2
                          , binders        = sortNub $ binders c1 ++     binders        c2
                          , noCheckUnknown = noCheckUnknown c1    ||     noCheckUnknown c2
                          , notermination  = notermination  c1    ||     notermination  c2
@@ -310,7 +312,7 @@ writeResult cfg c          = mapM_ (writeDoc c) . zip [0..] . resDocs tidy
     writeBlock _  _ ss     = forM_ ("\n" : ss) putStrLn
 
 resDocs _ Safe             = [text "SAFE"]
-resDocs k (Crash xs s)     = text ("ERROR: " ++ s) : pprManyOrdered k "" xs
+resDocs k (Crash xs s)     = text ("ERROR: " ++ s) : pprManyOrdered k "" (errToFCrash <$> xs)
 resDocs k (Unsafe xs)      = text "UNSAFE" : pprManyOrdered k "" (nub xs)
 resDocs _ (UnknownError d) = [text $ "PANIC: Unexpected Error: " ++ d, reportUrl]
 
@@ -323,4 +325,3 @@ addErrors (Unsafe xs) errs = Unsafe (xs ++ errs)
 addErrors r  _             = r
 instance Fixpoint (FixResult Error) where
   toFix = vcat . resDocs Full
-

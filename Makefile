@@ -4,6 +4,7 @@ SMTSOLVER=z3
 FASTOPTS="-O0"
 DISTOPTS="-W -O2 -XStandaloneDeriving"
 PROFOPTS="-O2 -rtsopts -prof -auto-all -caf-all -XStandaloneDeriving -XDeriveDataTypeable"
+LIQUIDOPTS=""
 
 CABAL=cabal
 CABALI=$(CABAL) install --ghc-options=$(OPTS)
@@ -77,6 +78,7 @@ test:
 	$(CABAL) configure -fdevel --enable-tests --disable-library-profiling -O2
 	$(CABAL) build
 	$(CABAL) exec $(TASTY) -- --smtsolver $(SMTSOLVER) --hide-successes --rerun-update -p 'Unit/' -j$(THREADS) +RTS -N$(THREADS) -RTS
+	# $(CABAL) exec $(TASTY) -- --smtsolver $(SMTSOLVER) --liquid-opts='$(LIQUIDOPTS)' --hide-successes --rerun-update -p 'Unit/' -j$(THREADS) +RTS -N$(THREADS) -RTS
 
 
 retest:
@@ -98,4 +100,5 @@ lint:
 	hlint --colour --report .
 
 tags:
-	hasktags -b src/
+	hasktags -c src/
+	hasktags -e src/
