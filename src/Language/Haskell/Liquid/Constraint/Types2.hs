@@ -72,12 +72,14 @@ data SubC     = SubC { senv  :: !CGEnv
                      , rhs   :: !SpecType 
                      -- expressions mapped to this constraint
                      -- these are used for fault localization
+                     -- , exprs :: ![(CGEnv, Expr Var)]
                      }
               | SubR { senv  :: !CGEnv
                      , oblig :: !Oblig
                      , ref   :: !RReft
                      -- expressions mapped to this constraint
                      -- these are used for fault localization
+                     -- , exprs :: ![(CGEnv, Expr Var)]
                      }
 
 data WfC      = WfC  !CGEnv !SpecType 
@@ -96,7 +98,7 @@ instance PPrint WfC where
   pprint (WfC w r) = pprint w <> text " |- " <> pprint r 
 
 instance SubStratum SubC where
-  subS su (SubC γ t1 t2) = SubC γ (subS su t1) (subS su t2)
+  subS su (SubC γ t1 t2 exprs) = SubC γ (subS su t1) (subS su t2) exprs
   subS _  c              = c
 
 

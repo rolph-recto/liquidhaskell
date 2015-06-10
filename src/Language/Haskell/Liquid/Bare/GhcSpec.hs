@@ -30,7 +30,7 @@ import qualified Data.HashSet        as S
 
 import Language.Fixpoint.Misc
 import Language.Fixpoint.Names (takeWhileSym, nilName, consName)
-import Language.Fixpoint.Types
+import Language.Fixpoint.Types hiding (BE)
 
 import Language.Haskell.Liquid.Dictionaries
 import Language.Haskell.Liquid.GhcMisc (getSourcePosE, getSourcePos, sourcePosSrcSpan)

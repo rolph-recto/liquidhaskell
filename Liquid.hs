@@ -27,6 +27,7 @@ import           Language.Haskell.Liquid.Constraint.Types
 import           Language.Haskell.Liquid.TransformRec
 import           Language.Haskell.Liquid.Annotate (mkOutput)
 -- import           Language.Haskell.Liquid.FaultLocal
+import           FaultLocal
 
 main :: IO b
 main = do cfg0     <- getOpts
@@ -41,19 +42,41 @@ main = do cfg0     <- getOpts
               ans <- getLine
               if ans == "yes"
                 then do
+                  checkOneFL cfg0 $ head $ files cfg0
+                  exitWith ecode
+                  {--
                   consFL <- checkOneFL cfg0 $ head $ files cfg0
                   putStrLn ("# of constraints implicated: " ++ (show $ length consFL))
                   forM_ consFL (\cons -> do
                     print $ ci_loc $ sinfo cons)
                   exitWith ecode
+                  --}
                 else exitWith ecode
 
 checkOneFL cfg0 t = do
   val <- getGhcInfo cfg0 t
   case val of
     Left _ -> return []
-    Right info -> liquidOneFL t info
+    Right info -> do
+      liquidOneFL t info
+      return []
 
+liquidOneFL target info = do
+  let cfg = config $ spec info 
+  let cbs' = transformScope (cbs info)
+  dc <- prune cfg cbs' target info
+  let cgi = {-# SCC "generateConstraints" #-} generateConstraints $! info {cbs = cbs'}
+  finfo <- cgInfoFInfo info cgi
+  faultLocal (fx cfg) finfo
+  where
+     fx cfg = def { FC.solver  = fromJust (smtsolver cfg)
+              , FC.real    = real   cfg
+              , FC.native  = native cfg
+              , FC.srcFile = target
+              }
+
+
+{--
 liquidOneFL target info = do
   let cfg   = config $ spec info 
   let cbs' = transformScope (cbs info)
@@ -63,6 +86,7 @@ liquidOneFL target info = do
   let cons = fixCs cgi
   consFL <- deltaDebug cfg target cgi info dc cons []
   return consFL
+--}
 
 -- test() for delta debugging algorithm
 -- intuitively, check if set of constraints cons induces
@@ -141,19 +165,11 @@ prune cfg cbs target info
     vs            = tgtVars sp
     sp            = spec info
 
-<<<<<<< HEAD
--- printConstraints :: [SubC] -> IO ()
--- printConstraints cons = forM_ cons (print . consWeight)
-
-solveCs cfg target cgi info dc 
-  = do
-       let finfo = cgInfoFInfo info cgi
-       (r, sol) <- solve fx target (hqFiles info) finfo
-=======
 solveCs cfg target cgi info dc
   = do finfo    <- cgInfoFInfo info cgi
        (r, sol) <- solve fx finfo
->>>>>>> 93075f43817e7d040b120142466af0e7b7e292a7
+       putStrLn "Solution: "
+       print sol
        let names = checkedNames dc
        let warns = logErrors cgi
        let annm  = annotMap cgi

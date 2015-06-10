@@ -39,3 +39,5 @@ css/
 
 *.smt2
 .liquid
+
+.cabal-sandbox/
