@@ -10,11 +10,12 @@
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE OverlappingInstances       #-}
-{-# LANGUAGE ViewPatterns               #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE RecordWildCards            #-}
 
 -- | This module should contain all the global type definitions and basic instances.
+
+{-@ LIQUID "--cabaldir" @-}
 
 module Language.Haskell.Liquid.Types (
 
@@ -193,6 +194,8 @@ module Language.Haskell.Liquid.Types (
   -- * Ureftable Instances
   , UReftable(..)
 
+  -- * String Literals
+  , liquidBegin, liquidEnd
   )
   where
 
@@ -270,6 +273,7 @@ data Config = Config {
   , smtsolver      :: Maybe SMTSolver  -- ^ name of smtsolver to use [default: try z3, cvc4, mathsat in order]
   , shortNames     :: Bool       -- ^ drop module qualifers from pretty-printed names.
   , shortErrors    :: Bool       -- ^ don't show subtyping errors and contexts.
+  , cabalDir       :: Bool       -- ^ find and use .cabal file to include paths to sources for imported modules
   , ghcOptions     :: [String]   -- ^ command-line options to pass to GHC
   , cFiles         :: [String]   -- ^ .c files to compile and link against (for GHC)
   } deriving (Data, Typeable, Show, Eq)
@@ -817,6 +821,8 @@ instance Eq RTyCon where
 instance Fixpoint RTyCon where
   toFix (RTyCon c _ _) = text $ showPpr c -- <+> text "\n<<" <+> hsep (map toFix ts) <+> text ">>\n"
 
+instance Fixpoint Cinfo where
+  toFix = text . showPpr . ci_loc
 
 instance PPrint RTyCon where
   pprint = text . showPpr . rtc_tc
@@ -1570,8 +1576,8 @@ errOther = ErrOther noSrcSpan
 
 data Cinfo    = Ci { ci_loc :: !SrcSpan
                    , ci_err :: !(Maybe Error)
-                   } 
-                deriving (Eq, Ord, Generic) 
+                   }
+                deriving (Eq, Ord, Generic)
 
 instance NFData Cinfo where
   rnf x = seq x ()
@@ -1838,3 +1844,11 @@ instance PPrint DataCon where
 
 instance Show DataCon where
   show = showpp
+
+
+liquidBegin :: String
+liquidBegin = ['{', '-', '@']
+
+liquidEnd :: String
+liquidEnd = ['@', '-', '}']
+
