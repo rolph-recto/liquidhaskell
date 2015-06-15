@@ -11,12 +11,13 @@ import           CoreSyn
 import           Var
 import           System.Console.CmdArgs.Verbosity (whenLoud)
 import           System.Console.CmdArgs.Default
+import           System.IO
 
 import qualified Language.Fixpoint.Config as FC
 import qualified Language.Haskell.Liquid.DiffCheck as DC
 import           Language.Fixpoint.Misc
 import           Language.Fixpoint.Interface
-import           Language.Fixpoint.Types (sinfo)
+import           Language.Fixpoint.Types (sinfo, FixResult(..))
 import           Language.Haskell.Liquid.Types
 import           Language.Haskell.Liquid.Errors
 import           Language.Haskell.Liquid.CmdLine
@@ -165,11 +166,20 @@ prune cfg cbs target info
     vs            = tgtVars sp
     sp            = spec info
 
+printResults cfg r sol = case r of 
+  Unsafe cons -> do 
+    let errname = (head $ files cfg) ++ ".errout"
+    withFile errname WriteMode (\file -> do
+      forM_ cons (hPrint file . ci_loc . sinfo)
+      
+  Safe -> do
+    putStrLn "Solution: "
+    print sol
+
 solveCs cfg target cgi info dc
   = do finfo    <- cgInfoFInfo info cgi
        (r, sol) <- solve fx finfo
-       putStrLn "Solution: "
-       print sol
+       printResults cfg r sol
        let names = checkedNames dc
        let warns = logErrors cgi
        let annm  = annotMap cgi
