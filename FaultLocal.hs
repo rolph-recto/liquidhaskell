@@ -8,10 +8,12 @@ import Data.HashMap.Strict as M hiding (map,foldr,filter)
 import Control.Monad.State
 import Control.Monad
 import Text.Read hiding (get)
+import System.IO
 
 import Language.Fixpoint.Interface
 import Language.Fixpoint.Types
 import Language.Fixpoint.Config
+import Language.Haskell.Liquid.Types (Cinfo(..))
 
 -- FAULT LOCAL ALGO 1
 isSafe :: Result a -> Bool
@@ -20,7 +22,7 @@ isSafe _  = False
 
 -- higher order delta debugging algo
 -- just needs a test function for it to work
-deltaDebug :: (Config -> FInfo a -> b -> [c] -> IO Bool) -> Config -> FInfo a -> b -> [c] -> [c] -> IO [c]
+deltaDebug :: (Config -> FInfo Cinfo -> b -> [c] -> IO Bool) -> Config -> FInfo Cinfo -> b -> [c] -> [c] -> IO [c]
 deltaDebug testSet cfg finfo ddata set r = do
   let (s1, s2) = splitAt ((length set) `div` 2) set
   if length set == 1
@@ -38,7 +40,7 @@ deltaDebug testSet cfg finfo ddata set r = do
               d2 <- deltaDebug testSet cfg finfo ddata s2 (s1 ++ r)
               return (d1 ++ d2)
 
-testConstraints :: Config -> FInfo a -> () -> [(Integer, SubC a)] -> IO Bool
+testConstraints :: Config -> FInfo Cinfo -> () -> [(Integer, SubC Cinfo)] -> IO Bool
 testConstraints cfg finfo _ cons  = do
   putStrLn "testing constraint set "
   print cons
@@ -47,12 +49,12 @@ testConstraints cfg finfo _ cons  = do
   return $ isSafe res
 
 -- fault local algo 1: remove constraints
-faultLocal1 :: Config -> FInfo a -> IO ()
-faultLocal1 cfg finfo = do
+faultLocal1 :: Config -> FInfo Cinfo -> Handle -> IO ()
+faultLocal1 cfg finfo h = do
   let cons = M.toList $ cm finfo
   sol <- deltaDebug testConstraints cfg finfo () cons []
-  putStrLn "Solution: "
-  print sol
+  hPutStrLn h "Solution: "
+  hPrint h $ map (ci_loc . sinfo . snd) sol
 
 
 -- FAULT LOCAL ALGO 2
@@ -74,7 +76,7 @@ makeBlankReft RHS (RR sort (Reft (sym, Refa pred))) =
   RR sort (Reft (sym, Refa PTrue))
 
 -- make a blank copy of a single binding
-copyBinding :: (BindId, Symbol, SortedReft) -> State (FInfo a) (BindId, BindId)
+copyBinding :: (BindId, Symbol, SortedReft) -> State (FInfo Cinfo) (BindId, BindId)
 copyBinding (id,sym,reft) = do  
   finfo <- get 
   let reft' = makeBlankReft LHS reft
@@ -84,7 +86,7 @@ copyBinding (id,sym,reft) = do
   
 -- make "blank" copies of bindings
 -- return id pairs of original bindings and blank ones
-copyBindings :: State (FInfo a) [(BindId, BindId)]
+copyBindings :: State (FInfo Cinfo) [(BindId, BindId)]
 copyBindings = do
   finfo <- get
   let bmap = bindEnvToList $ bs finfo
@@ -100,13 +102,13 @@ data EraseItem =  EraseBind { subc :: Integer, bind :: BindId }
 -- create a list of possible bindings / refinements to erase
 -- this only supports LHS and RHS refinements for now
 -- since adding bindings would create combinatorial explosion
-createEraseList :: FInfo a -> [[EraseItem]]
+createEraseList :: FInfo Cinfo -> [[EraseItem]]
 createEraseList finfo = 
   let subcs = M.toList $ cm finfo in 
   map (\(id,subc) -> [EraseLHS id, EraseRHS id]) subcs
 
 -- erase the left/right hand refinement of a subtyping constraint
-eraseSubCReft :: Integer -> Polarity -> State (FInfo a) ()
+eraseSubCReft :: Integer -> Polarity -> State (FInfo Cinfo) ()
 eraseSubCReft subcID pol = do
   finfo <- get
   let cmap = cm finfo
@@ -122,7 +124,7 @@ eraseSubCReft subcID pol = do
         newSubC subc reft RHS = subc { srhs = makeBlankReft RHS reft }
 
 -- erase a single refinement
-applyEraseItem :: [(BindId, BindId)] -> EraseItem -> State (FInfo a) ()
+applyEraseItem :: [(BindId, BindId)] -> EraseItem -> State (FInfo Cinfo) ()
 applyEraseItem bindPairs (EraseBind subcID bind) = return ()
 applyEraseItem bindPairs (EraseLHS subcID) = do
   eraseSubCReft subcID LHS
@@ -130,7 +132,7 @@ applyEraseItem bindPairs (EraseRHS subcID) = do
   eraseSubCReft subcID RHS
  
 -- erase a list of refinements
-applyEraseList :: [EraseItem] -> [(BindId, BindId)] -> State (FInfo a) ()
+applyEraseList :: [EraseItem] -> [(BindId, BindId)] -> State (FInfo Cinfo) ()
 applyEraseList eraseList bindPairs = do
   finfo <- get
   forM_ eraseList (applyEraseItem bindPairs)
@@ -138,42 +140,49 @@ applyEraseList eraseList bindPairs = do
   
 -- apply single candidate erasures of refinements
 -- then try to solve new constraint set
-tryErase :: Config -> FInfo a -> [(BindId, BindId)] -> [EraseItem] -> IO (Result a)
+tryErase :: Config -> FInfo Cinfo -> [(BindId, BindId)] -> [EraseItem] -> IO (Result Cinfo)
 tryErase cfg finfo bindPairs eraseList = do
   putStrLn "Try erasing these refinements: "
-  -- print eraseList
+  print eraseList
   let finfo' = execState (applyEraseList eraseList bindPairs) finfo
   -- print $ cm finfo'
   res <- solve cfg finfo'
   return res
 
-testErase :: Config -> FInfo a -> [(BindId, BindId)] -> [EraseItem] -> IO Bool
+testErase :: Config -> FInfo Cinfo -> [(BindId, BindId)] -> [EraseItem] -> IO Bool
 testErase cfg finfo bindPairs eraseList = do
   res <- tryErase cfg finfo bindPairs eraseList
   return $ isSafe res
 
-printEraseItem :: FInfo a -> EraseItem -> IO ()
-printEraseItem finfo (EraseLHS id) = do
-  putStrLn "eraseLHS"
-  print $ M.lookup id (cm finfo)
-printEraseItem finfo (EraseRHS id) = do
-  putStrLn "eraseRHS"
-  print $ M.lookup id (cm finfo)
-printEraseItem finfo _ = return ()
+printEraseItem :: Handle -> FInfo Cinfo -> EraseItem -> IO ()
+printEraseItem h finfo (EraseLHS id) = do
+  case M.lookup id (cm finfo) of
+    Just con -> do
+      hPutStrLn h "eraseLHS"
+      hPrint h $ ci_loc $ sinfo con
+    Nothing -> return ()
+printEraseItem h finfo (EraseRHS id) = do
+  case M.lookup id (cm finfo) of
+    Just con -> do
+      hPutStrLn h "eraseRHS"
+      hPrint h $ ci_loc $ sinfo con
+    Nothing -> return ()
+
+printEraseItem h finfo _ = return ()
   
 
 -- fault local algo 2: erase refinements
 -- use delta debugging algo
-faultLocal2 :: Config -> FInfo a -> IO ()
-faultLocal2 cfg finfo = do
+faultLocal2 :: Config -> FInfo Cinfo -> Handle -> IO ()
+faultLocal2 cfg finfo h = do
   putStrLn "copying bindings"
   let (bindPairs, finfo') = runState copyBindings finfo
   putStrLn "creating eraselists"
   let eraseList = createEraseList finfo' >>= id
   sol <- deltaDebug testErase cfg finfo bindPairs eraseList []
 
-  putStrLn "Solution: "
-  forM_ sol (printEraseItem finfo)
+  hPutStrLn h "Solution: "
+  forM_ sol (printEraseItem h finfo)
 
 
 -- FAULT LOCAL ALGO 3
@@ -182,7 +191,7 @@ removeErasePowersets e eraseList =
   filter (\e' -> not $ all (\et -> et `elem` e') e) eraseList
 
 -- apply all candidate erasures
-tryAllErase :: Config -> FInfo a -> [(BindId, BindId)] -> [[EraseItem]] -> IO [([EraseItem], Result a)]
+tryAllErase :: Config -> FInfo Cinfo -> [(BindId, BindId)] -> [[EraseItem]] -> IO [([EraseItem], Result Cinfo)]
 tryAllErase cfg finfo bindPairs [] = return []
 tryAllErase cfg finfo bindPairs (e:ex) = do
   putStrLn "trying eraselist "
@@ -202,30 +211,30 @@ tryAllErase cfg finfo bindPairs (e:ex) = do
 -- fault local algo 3: erase refinements
 -- calculate powerset and cull away redundant solver calls
 -- this takes up a lot of memory, hangs for even small programs
-faultLocal3 :: Config -> FInfo a -> IO ()
-faultLocal3 cfg finfo = do
-  putStrLn "copying bindings"
+faultLocal3 :: Config -> FInfo Cinfo -> Handle -> IO ()
+faultLocal3 cfg finfo h = do
+  putStrLn  "copying bindings"
   let (bindPairs, finfo') = runState copyBindings finfo
-  putStrLn "creating eraselists"
+  putStrLn  "creating eraselists"
   let eraseLists = powerset (createEraseList finfo') >>= cartProduct
   let eraseLists' = sortBy (\x y -> length x `compare` length y) eraseLists
 
-  putStrLn "trying eraselists"
+  putStrLn  "trying eraselists"
   sols <- tryAllErase cfg finfo' bindPairs eraseLists'
-  putStrLn "number of eraselists: "
-  print $ length eraseLists'
-  putStrLn "number of possible solutions: "
-  print $ length sols
-  putStrLn "possible solutions:"
-  sequence $ map (\sol -> putStrLn $ show sol) sols
+  hPutStrLn h "number of eraselists: "
+  hPrint h $ length eraseLists'
+  hPutStrLn h "number of possible solutions: "
+  hPrint h $ length sols
+  hPutStrLn h "possible solutions:"
+  sequence $ map (\sol -> hPutStrLn h $ show sol) sols
   return ()
 
 
 -- FAULT LOCAL ALGO 4
-getGamma :: SubC a -> HashSet BindId
+getGamma :: SubC Cinfo -> HashSet BindId
 getGamma = S.fromList . elemsIBindEnv . senv
 
-getBindMap :: FInfo a -> BindMap (Symbol, SortedReft)
+getBindMap :: FInfo Cinfo -> BindMap (Symbol, SortedReft)
 getBindMap finfo = case bs finfo of
   BE _ bmap -> bmap
 
@@ -240,7 +249,7 @@ eraseRefinement id map =
     -- no refinement to erase, so just return the original map
     Nothing -> map
 
-tryBinding :: Config -> FInfo a -> [BindId] -> IO (Result a)
+tryBinding :: Config -> FInfo Cinfo -> [BindId] -> IO (Result Cinfo)
 tryBinding cfg finfo idlist = do
   let env = bs finfo
   let map = getBindMap finfo
@@ -248,7 +257,7 @@ tryBinding cfg finfo idlist = do
   let finfo' = finfo { bs = env { beBinds = map' } }
   solve cfg finfo' 
 
-tryBindings :: Config -> FInfo a -> [[BindId]] -> [BindId] -> IO [BindId]
+tryBindings :: Config -> FInfo Cinfo -> [[BindId]] -> [BindId] -> IO [BindId]
 tryBindings cfg finfo [] acc = return acc
 tryBindings cfg finfo (bindids:bs) acc = do
   putStr "Trying bindings "
@@ -267,31 +276,38 @@ tryBindings cfg finfo (bindids:bs) acc = do
       tryBindings cfg finfo bs ((impbinds >>= id) ++ acc)
     _ -> tryBindings cfg finfo bs acc
 
+printBinding :: FInfo Cinfo -> BindId -> IO ()
+printBinding finfo id = do
+  case M.lookup id (bindInfo finfo) of
+    Just (Ci loc _) -> print loc
+    Nothing -> return()
 
 -- fault local algo 4: erase refinements of bindings
-faultLocal4 :: Config -> FInfo a -> IO ()
-faultLocal4 cfg finfo = do
+faultLocal4 :: Config -> FInfo Cinfo -> Handle -> IO ()
+faultLocal4 cfg finfo h = do
   -- gather bindings used in the constraints
   let gammas = foldr (\c acc -> (getGamma c):acc) [] (M.elems $ cm finfo)
   let bindings = S.toList $ S.unions gammas
   let trylist = map (\bind -> [bind]) bindings
   impbinds <- tryBindings cfg finfo trylist []
-  putStrLn "Number of bindings total: "
-  print $ length bindings
-  putStrLn "Number of bindings implicated: "
-  print $ length impbinds
-  putStrLn "Bindings implicated: "
-  sequence $ map (\b -> putStrLn $ show $ lookupBindEnv b (bs finfo)) impbinds
-  return ()
+  hPutStrLn h "Number of bindings total: "
+  hPrint h $ length bindings
+  hPutStrLn h "Number of bindings implicated: "
+  hPrint h $ length impbinds
+  hPutStrLn h "Bindings implicated: "
+  forM_ impbinds (printBinding finfo)
 
-faultLocal :: Config -> FInfo a -> IO ()
+faultLocal :: Config -> FInfo Cinfo -> IO ()
 faultLocal cfg finfo = do
-  let algos = [faultLocal1, faultLocal2, faultLocal3, faultLocal4]
-  putStrLn "1. Filter constraints (delta debugging)"
-  putStrLn "2. Erase constraint refinements (delta debugging)"
-  putStrLn "3. Erase constraint refinements (powerset)"
-  putStrLn "4. Erase binding refinements"
-  putStrLn "Which algorithm to use? "
+  let flname = (srcFile cfg) ++ ".flout"
+  -- let algos = [("Filter constraints (delta debugging)", faultLocal1), ("Erase constraint refinements (delta debugging)", faultLocal2), ("Erase constraint refinements (powerset)", faultLocal3), ("Erase binding refinements", faultLocal4)]
+  let algos = [("Filter constraints (delta debugging)", faultLocal1), ("Erase constraint refinements (delta debugging)", faultLocal2), ("Erase binding refinements", faultLocal4)]
+  withFile flname WriteMode (\file -> do
+    forM_ algos (\(name,fl) -> do
+      hPutStrLn file name
+      fl cfg finfo file))
+
+{-   
   ans <- getLine
   case readMaybe ans :: Maybe Int of
     Just n -> do
@@ -301,5 +317,5 @@ faultLocal cfg finfo = do
           fl cfg finfo
         else return ()
     Nothing -> return ()
-
-
+-}
+  
