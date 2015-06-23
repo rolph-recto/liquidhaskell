@@ -29,7 +29,12 @@ import           Language.Haskell.Liquid.Constraint.Generate
 import           Language.Haskell.Liquid.Constraint.ToFixpoint
 import           Language.Haskell.Liquid.Constraint.Types
 import           Language.Haskell.Liquid.TransformRec
-import           Language.Haskell.Liquid.Annotate (mkOutput)
+import           Language.Haskell.Liquid.Annotate (mkOutput, generateHtml)
+import qualified Language.Haskell.Liquid.ACSS as A
+import Language.Haskell.Liquid.GhcMisc (Loc(..), srcSpanStartLoc, srcSpanEndLoc)
+import Data.HashMap.Strict as M hiding (map,foldr,filter,null)
+import Data.List
+import SrcLoc
 -- import           Language.Haskell.Liquid.FaultLocal
 import           FaultLocal
 import           System.Environment (getArgs)
@@ -170,15 +175,32 @@ prune cfg cbs target info
     vs            = tgtVars sp
     sp            = spec info
 
+uniqueSrcSpans :: [SrcSpan] -> [RealSrcSpan]
+uniqueSrcSpans locs = nub $ locs >>= realLocs
+  where realLocs (RealSrcSpan loc) = [loc]
+        realLocs (UnhelpfulSpan _)   = []
+
+generateFLAnnotation :: [RealSrcSpan] -> A.AnnMap
+generateFLAnnotation locs = A.Ann { A.types = M.empty, A.errors = errlocs, A.status = A.Unsafe }
+  where errlocs = map (\loc -> (srcSpanStartLoc loc, srcSpanEndLoc loc, "possible error location")) locs
+
+flDir = ".liquidfl/"
 printResults cfg r sol = case r of 
   Unsafe cons -> do 
-    let errname = (head $ files cfg) ++ ".errout"
+    let errname = flDir ++ (head $ files cfg) ++ ".errout"
     withFile errname WriteMode (\file -> do
-      forM_ cons (hPrint file . ci_loc . sinfo)
-      
+      forM_ cons (hPrint file . ci_loc . sinfo))
+
+    let errHtml = flDir ++ (head $ files cfg) ++ ".errout.html"
+    let locs = (uniqueSrcSpans . map (ci_loc . sinfo)) cons
+    let annots = generateFLAnnotation locs
+    generateHtml (head $ files cfg) errHtml annots
+
   Safe -> do
     putStrLn "Solution: "
     print sol
+  
+  _ -> return ()
 
 solveCs cfg target cgi info dc
   = do finfo    <- cgInfoFInfo info cgi

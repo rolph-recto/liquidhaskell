@@ -12,7 +12,7 @@
 -- 3. JSON files for the web-demo etc.
 ---------------------------------------------------------------------------
 
-module Language.Haskell.Liquid.Annotate (mkOutput, annotate) where
+module Language.Haskell.Liquid.Annotate (mkOutput, annotate, generateHtml) where
 
 import           GHC                      ( SrcSpan (..)
                                           , srcSpanStartCol

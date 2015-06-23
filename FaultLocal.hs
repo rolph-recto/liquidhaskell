@@ -9,11 +9,23 @@ import Control.Monad.State
 import Control.Monad
 import Text.Read hiding (get)
 import System.IO
+import System.Directory
+import SrcLoc
+import Data.Text (Text, pack, unpack)
+import Text.Karver
 
 import Language.Fixpoint.Interface
-import Language.Fixpoint.Types
+import Language.Fixpoint.Types hiding (Status(..))
 import Language.Fixpoint.Config
 import Language.Haskell.Liquid.Types (Cinfo(..))
+import qualified Language.Haskell.Liquid.ACSS as A
+import Language.Haskell.Liquid.Annotate (generateHtml)
+import Language.Haskell.Liquid.GhcMisc (Loc(..), srcSpanStartLoc, srcSpanEndLoc)
+
+uniqueSrcSpans :: [SrcSpan] -> [RealSrcSpan]
+uniqueSrcSpans locs = nub $ locs >>= realLocs
+  where realLocs (RealSrcSpan loc) = [loc]
+        realLocs (UnhelpfulSpan _)   = []
 
 -- FAULT LOCAL ALGO 1
 isSafe :: Result a -> Bool
@@ -29,11 +41,11 @@ deltaDebug testSet cfg finfo ddata set r = do
     then return set
     else do
       test1 <- testSet cfg finfo ddata (s1 ++ r)
-      if test1
+      if not test1
         then deltaDebug testSet cfg finfo ddata s1 r
         else do
           test2 <- testSet cfg finfo ddata (s2 ++ r)
-          if test2
+          if not test2
             then deltaDebug testSet cfg finfo ddata s2 r
             else do
               d1 <- deltaDebug testSet cfg finfo ddata s1 (s2 ++ r)
@@ -49,12 +61,11 @@ testConstraints cfg finfo _ cons  = do
   return $ isSafe res
 
 -- fault local algo 1: remove constraints
-faultLocal1 :: Config -> FInfo Cinfo -> Handle -> IO ()
-faultLocal1 cfg finfo h = do
+faultLocal1 :: Config -> FInfo Cinfo -> IO [RealSrcSpan]
+faultLocal1 cfg finfo = do
   let cons = M.toList $ cm finfo
   sol <- deltaDebug testConstraints cfg finfo () cons []
-  hPutStrLn h "Solution: "
-  hPrint h $ map (ci_loc . sinfo . snd) sol
+  return $ (uniqueSrcSpans . map (ci_loc . sinfo . snd)) sol
 
 
 -- FAULT LOCAL ALGO 2
@@ -167,22 +178,30 @@ printEraseItem h finfo (EraseRHS id) = do
       hPutStrLn h "eraseRHS"
       hPrint h $ ci_loc $ sinfo con
     Nothing -> return ()
-
 printEraseItem h finfo _ = return ()
-  
+
+eraseItemToSrcSpan :: FInfo Cinfo -> EraseItem -> [SrcSpan]
+eraseItemToSrcSpan finfo (EraseLHS id) =
+  case M.lookup id (cm finfo) of
+    Just con -> [ci_loc $ sinfo con]
+    Nothing -> []
+eraseItemToSrcSpan finfo (EraseRHS id) =
+  case M.lookup id (cm finfo) of
+    Just con -> [ci_loc $ sinfo con]
+    Nothing -> []
+eraseItemToSrcSpan finfo (EraseBind _ bid) =
+  case M.lookup bid (bindInfo finfo) of
+    Just (Ci loc _) -> [loc]
+    Nothing -> []
 
 -- fault local algo 2: erase refinements
 -- use delta debugging algo
-faultLocal2 :: Config -> FInfo Cinfo -> Handle -> IO ()
-faultLocal2 cfg finfo h = do
-  putStrLn "copying bindings"
+faultLocal2 :: Config -> FInfo Cinfo -> IO [RealSrcSpan]
+faultLocal2 cfg finfo = do
   let (bindPairs, finfo') = runState copyBindings finfo
-  putStrLn "creating eraselists"
   let eraseList = createEraseList finfo' >>= id
   sol <- deltaDebug testErase cfg finfo bindPairs eraseList []
-
-  hPutStrLn h "Solution: "
-  forM_ sol (printEraseItem h finfo)
+  return $ uniqueSrcSpans $ sol >>= eraseItemToSrcSpan finfo
 
 
 -- FAULT LOCAL ALGO 3
@@ -211,23 +230,15 @@ tryAllErase cfg finfo bindPairs (e:ex) = do
 -- fault local algo 3: erase refinements
 -- calculate powerset and cull away redundant solver calls
 -- this takes up a lot of memory, hangs for even small programs
-faultLocal3 :: Config -> FInfo Cinfo -> Handle -> IO ()
-faultLocal3 cfg finfo h = do
-  putStrLn  "copying bindings"
+faultLocal3 :: Config -> FInfo Cinfo -> IO [RealSrcSpan]
+faultLocal3 cfg finfo = do
   let (bindPairs, finfo') = runState copyBindings finfo
-  putStrLn  "creating eraselists"
   let eraseLists = powerset (createEraseList finfo') >>= cartProduct
   let eraseLists' = sortBy (\x y -> length x `compare` length y) eraseLists
 
-  putStrLn  "trying eraselists"
   sols <- tryAllErase cfg finfo' bindPairs eraseLists'
-  hPutStrLn h "number of eraselists: "
-  hPrint h $ length eraseLists'
-  hPutStrLn h "number of possible solutions: "
-  hPrint h $ length sols
-  hPutStrLn h "possible solutions:"
-  sequence $ map (\sol -> hPutStrLn h $ show sol) sols
-  return ()
+  -- TODO: this is kind of broken, so don't return anything for now
+  return []
 
 
 -- FAULT LOCAL ALGO 4
@@ -276,46 +287,133 @@ tryBindings cfg finfo (bindids:bs) acc = do
       tryBindings cfg finfo bs ((impbinds >>= id) ++ acc)
     _ -> tryBindings cfg finfo bs acc
 
-printBinding :: FInfo Cinfo -> BindId -> IO ()
-printBinding finfo id = do
+printBinding :: FInfo Cinfo -> Handle -> BindId -> IO ()
+printBinding finfo h id = do
   case M.lookup id (bindInfo finfo) of
-    Just (Ci loc _) -> print loc
+    Just (Ci loc _) -> hPrint h loc
     Nothing -> return()
 
+bindingToSrcSpan :: FInfo Cinfo -> BindId -> [SrcSpan]
+bindingToSrcSpan finfo id =
+  case M.lookup id (bindInfo finfo) of 
+    Just (Ci loc _) -> [loc]
+    Nothing -> []
+
 -- fault local algo 4: erase refinements of bindings
-faultLocal4 :: Config -> FInfo Cinfo -> Handle -> IO ()
-faultLocal4 cfg finfo h = do
+faultLocal4 :: Config -> FInfo Cinfo -> IO [RealSrcSpan]
+faultLocal4 cfg finfo = do
   -- gather bindings used in the constraints
   let gammas = foldr (\c acc -> (getGamma c):acc) [] (M.elems $ cm finfo)
   let bindings = S.toList $ S.unions gammas
   let trylist = map (\bind -> [bind]) bindings
   impbinds <- tryBindings cfg finfo trylist []
-  hPutStrLn h "Number of bindings total: "
-  hPrint h $ length bindings
-  hPutStrLn h "Number of bindings implicated: "
-  hPrint h $ length impbinds
-  hPutStrLn h "Bindings implicated: "
-  forM_ impbinds (printBinding finfo)
+  return $ uniqueSrcSpans $ impbinds >>= bindingToSrcSpan finfo
+
+{-
+
+type ConsID = (Integer, SubC Cinfo)
+type ConsVars = ([KVar], [Symbol])
+
+collectVars :: ConsID -> ConsVars
+collectVars (_, con) = foldTup traversePred [reftPred $ lhsCs con, reftPred $ rhsCs con]
+  where foldTup f elems acc = foldr (foldTupF f) acc elems
+        foldTupF f pred acc = let vars = f pred in ((fst vars) ++ (fst acc), (snd vars) ++ (snd acc)) ([], []) 
+        traversePred PTrue = ([],[])
+        traversePred PFalse = ([], [])
+        traversePred (PAnd preds) = foldTup traversePred preds ([],[])
+        traversePred (POr preds) = foldTup traversePred preds ([],[])
+        traversePred (PNot pred) = traversePred pred
+        traversePred (PImp p q) = foldTup traversePred [p, q] ([],[])
+        traversePred (PIff p q) = foldTup traversePred [p, q] ([],[])
+        traversePred (PBexp e) = traverseExpr e
+        traversePred (Atom e1 e2) = foldTup traverseExpr [e1, e2] ([],[])
+        traversePred (PKvar kv _) = ([kv], [])
+        traversePred (PAll _ p) = traversePred p
+        traversePred PTop = ([],[])
+        traverseExpr (ESym s) = ([],[])
+        traverseExpr (ECon c) = ([],[])
+        traverseExpr (EVar v) = ([], [v])
+        traverseExpr (ELit l s) = ([], [])
+        traverseExpr (App s exprs) = foldTup traverseExpr exprs ([],[])
+        traverseExpr (EBin op e1 e2) = foldTup traverseExpr [e1, e2] ([],[])
+        traverseExpr (EIte pred e1 e2) = foldTup traverseExpr [e1,e2] (traversePred pred)
+        traverseExpr (ECst e s) = traverseExpr e
+        traverseExpr EBot = ([],[])
+
+-- check if there is an edge between two constraints
+consShareVars :: (ConsID, ConsVars) -> (ConsID, ConsVars) -> Bool
+consShareVars (c1,(k1,v1)) (c2,(k2,v2)) =
+  let shareKVars = any (\k -> k `elem` k2) k1 in
+  let shareVars = any (\v -> `elem` v2) v1 in
+  shareKVars || shareVars
+
+-- create constraint graph
+makeConsGraph :: [ConsID] -> [(ConsID, ConsID)]
+makeConsGraph []    = []
+makeConsGraph cons  = toConsEdge $ makeConsGraph_ $ map (\c -> (c, collectVars c)) cons
+  where toConsEdge g = map (\(c1,c2) -> (fst c1, fst c2)) g
+        makeConsGraph_ = (makeEdges x xs) ++ (makeConsGraph_ xs)
+        makeEdges e []      = []
+        makeEdges e (e':es) = let tedges = makeEdges e es in
+                              if consShareVars e e' then (e,e'):tedges else tedges
+
+-- calculate the connected components of the constraint graph
+getConnComponents :: [(ConsID, ConsID)] -> [[ConsID]]
+get
+
+partitionConstraints :: [ConsID] -> [[ConsID]]
+partitionConstraints cons = foldr
+
+
+-- fault local algo 5: like algo 1, but partition constraint set
+-- into equiv classes that share kvars and variables and run
+-- delta debugging on those equiv classes separately
+-- the solution is the union of the delta debug solutions
+-- of every equiv class
+faultLocal5 :: Config -> FInfo Cinfo -> IO [RealSrcSpan]
+faultLocal5 cfg finfo = do
+  let cons = M.toList $ cm finfo
+  let consPart
+-}
+  
+
+generateFLAnnotation :: [RealSrcSpan] -> A.AnnMap
+generateFLAnnotation locs = A.Ann { A.types = M.empty, A.errors = errlocs, A.status = A.Unsafe }
+  where errlocs = map (\loc -> (srcSpanStartLoc loc, srcSpanEndLoc loc, "possible error location")) locs
+
+flDir = ".liquidfl/"
+tmpCompareFile = "/.cabal/template.flcompare.html"
 
 faultLocal :: Config -> FInfo Cinfo -> IO ()
 faultLocal cfg finfo = do
-  let flname = (srcFile cfg) ++ ".flout"
-  -- let algos = [("Filter constraints (delta debugging)", faultLocal1), ("Erase constraint refinements (delta debugging)", faultLocal2), ("Erase constraint refinements (powerset)", faultLocal3), ("Erase binding refinements", faultLocal4)]
-  let algos = [("Filter constraints (delta debugging)", faultLocal1), ("Erase constraint refinements (delta debugging)", faultLocal2), ("Erase binding refinements", faultLocal4)]
-  withFile flname WriteMode (\file -> do
-    forM_ algos (\(name,fl) -> do
-      hPutStrLn file name
-      fl cfg finfo file))
+  dirExist <- doesDirectoryExist flDir
+  if dirExist
+    then return ()
+    else createDirectory flDir
 
-{-   
-  ans <- getLine
-  case readMaybe ans :: Maybe Int of
-    Just n -> do
-      if n >= 1 && n <= 4
-        then do
-          let fl = algos !! (n-1)
-          fl cfg finfo
-        else return ()
-    Nothing -> return ()
--}
+  -- output list of implicated source locations
+  let flname = flDir ++ (srcFile cfg) ++ ".flout"
+  -- let algos = [("Filter constraints (delta debugging)", faultLocal1), ("Erase constraint refinements (delta debugging)", faultLocal2), ("Erase constraint refinements (powerset)", faultLocal3), ("Erase binding refinements", faultLocal4)
+  let algos = [("Filter constraints (delta debugging)", faultLocal1), ("Erase constraint refinements (delta debugging)", faultLocal2), ("Erase binding refinements", faultLocal4)]
+  results <- forM algos (\(_, fl) -> fl cfg finfo)
+  withFile flname WriteMode $ \file -> do
+    let algoResults = zip (map fst algos) results
+    forM_ algoResults $ \(name,result) -> do
+      hPutStrLn file "####################"
+      hPutStrLn file name
+      forM result ((hPutStrLn file). show)
+  
+  -- output annotated html files
+  let annotFiles = map (\(i, (name,_)) -> flDir ++ (srcFile cfg) ++ ".flannot" ++ (show i) ++ ".html") $ zip [1..] algos
+  forM_ (zip annotFiles results) $ \(fname, result) -> do
+    let annots = generateFLAnnotation result
+    generateHtml (srcFile cfg) fname annots
+  
+  -- output html file that compares annotated html files
+  let cmpflname = flDir ++ (srcFile cfg) ++ ".flcompare.html"
+  homeDir <- getHomeDirectory
+  tplStr <- readFile (homeDir ++ tmpCompareFile)
+  let litSrcName = Literal $ pack $ srcFile cfg
+  let htmlStr = renderTemplate (M.insert (pack "filename") litSrcName M.empty) (pack tplStr)
+  writeFile cmpflname (unpack htmlStr)
   
