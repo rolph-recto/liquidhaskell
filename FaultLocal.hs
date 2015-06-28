@@ -36,10 +36,10 @@ isSafe _  = False
 -- just needs a test function for it to work
 deltaDebug :: (Config -> FInfo Cinfo -> b -> [c] -> IO Bool) -> Config -> FInfo Cinfo -> b -> [c] -> [c] -> IO [c]
 deltaDebug testSet cfg finfo ddata set r = do
-  let (s1, s2) = splitAt ((length set) `div` 2) set
   if length set == 1
     then return set
     else do
+      let (s1, s2) = splitAt ((length set) `div` 2) set
       test1 <- testSet cfg finfo ddata (s1 ++ r)
       if not test1
         then deltaDebug testSet cfg finfo ddata s1 r
@@ -52,19 +52,27 @@ deltaDebug testSet cfg finfo ddata set r = do
               d2 <- deltaDebug testSet cfg finfo ddata s2 (s1 ++ r)
               return (d1 ++ d2)
 
-testConstraints :: Config -> FInfo Cinfo -> () -> [(Integer, SubC Cinfo)] -> IO Bool
-testConstraints cfg finfo _ cons  = do
-  putStrLn "testing constraint set "
-  print cons
+testConstraints :: Handle -> Config -> FInfo Cinfo -> () -> [(Integer, SubC Cinfo)] -> IO Bool
+testConstraints log cfg finfo _ cons  = do
+  hPutStrLn log "testing constraint set "
+  hPrint log $ map fst cons
   let finfo' = finfo { cm = M.fromList cons }
   res <- solve cfg finfo'
-  return $ isSafe res
+  if isSafe res
+    then do
+      hPutStrLn log "safe!"
+      return True
+    else do
+      hPutStrLn log "not safe!"
+      return False
 
 -- fault local algo 1: remove constraints
-faultLocal1 :: Config -> FInfo Cinfo -> IO [RealSrcSpan]
-faultLocal1 cfg finfo = do
+faultLocal1 :: Handle -> Config -> FInfo Cinfo -> IO [RealSrcSpan]
+faultLocal1 log cfg finfo = do
   let cons = M.toList $ cm finfo
-  sol <- deltaDebug testConstraints cfg finfo () cons []
+  sol <- deltaDebug (testConstraints log) cfg finfo () cons []
+  hPutStrLn log "found solution: "
+  hPrint log $ map fst sol
   return $ (uniqueSrcSpans . map (ci_loc . sinfo . snd)) sol
 
 
@@ -107,7 +115,12 @@ copyBindings = do
 data EraseItem =  EraseBind { subc :: Integer, bind :: BindId }
                 | EraseLHS { subc :: Integer }
                 | EraseRHS { subc :: Integer }
-                deriving (Eq, Show)
+                deriving (Eq)
+
+instance Show EraseItem where
+  show (EraseBind id bind) = "B " ++ (show id) ++ " " ++ (show bind)
+  show (EraseLHS id) = "L " ++ (show id)
+  show (EraseRHS id) = "R " ++ (show id)
           
 
 -- create a list of possible bindings / refinements to erase
@@ -153,17 +166,22 @@ applyEraseList eraseList bindPairs = do
 -- then try to solve new constraint set
 tryErase :: Config -> FInfo Cinfo -> [(BindId, BindId)] -> [EraseItem] -> IO (Result Cinfo)
 tryErase cfg finfo bindPairs eraseList = do
-  putStrLn "Try erasing these refinements: "
-  print eraseList
   let finfo' = execState (applyEraseList eraseList bindPairs) finfo
-  -- print $ cm finfo'
   res <- solve cfg finfo'
   return res
 
-testErase :: Config -> FInfo Cinfo -> [(BindId, BindId)] -> [EraseItem] -> IO Bool
-testErase cfg finfo bindPairs eraseList = do
+testErase :: Handle -> Config -> FInfo Cinfo -> [(BindId, BindId)] -> [EraseItem] -> IO Bool
+testErase log cfg finfo bindPairs eraseList = do
+  hPutStrLn log "testing erase items: "
+  hPrint log eraseList
   res <- tryErase cfg finfo bindPairs eraseList
-  return $ isSafe res
+  if isSafe res
+    then do
+      hPutStrLn log "safe!"
+      return True
+    else do
+      hPutStrLn log "not safe!"
+      return False
 
 printEraseItem :: Handle -> FInfo Cinfo -> EraseItem -> IO ()
 printEraseItem h finfo (EraseLHS id) = do
@@ -196,11 +214,13 @@ eraseItemToSrcSpan finfo (EraseBind _ bid) =
 
 -- fault local algo 2: erase refinements
 -- use delta debugging algo
-faultLocal2 :: Config -> FInfo Cinfo -> IO [RealSrcSpan]
-faultLocal2 cfg finfo = do
+faultLocal2 :: Handle -> Config -> FInfo Cinfo -> IO [RealSrcSpan]
+faultLocal2 log cfg finfo = do
   let (bindPairs, finfo') = runState copyBindings finfo
   let eraseList = createEraseList finfo' >>= id
-  sol <- deltaDebug testErase cfg finfo bindPairs eraseList []
+  sol <- deltaDebug (testErase log) cfg finfo bindPairs eraseList []
+  hPutStrLn log "found solution: "
+  hPrint log sol
   return $ uniqueSrcSpans $ sol >>= eraseItemToSrcSpan finfo
 
 
@@ -210,33 +230,35 @@ removeErasePowersets e eraseList =
   filter (\e' -> not $ all (\et -> et `elem` e') e) eraseList
 
 -- apply all candidate erasures
-tryAllErase :: Config -> FInfo Cinfo -> [(BindId, BindId)] -> [[EraseItem]] -> IO [([EraseItem], Result Cinfo)]
-tryAllErase cfg finfo bindPairs [] = return []
-tryAllErase cfg finfo bindPairs (e:ex) = do
-  putStrLn "trying eraselist "
-  print e
+tryAllErase :: Handle -> Config -> FInfo Cinfo -> [(BindId, BindId)] -> [[EraseItem]] -> IO [([EraseItem], Result Cinfo)]
+tryAllErase log cfg finfo bindPairs [] = return []
+tryAllErase log cfg finfo bindPairs (e:ex) = do
+  hPutStrLn log "trying eraselist: "
+  hPrint log e
   res@(items, fres) <- tryErase cfg finfo bindPairs e
   if isSafe res
     then do 
       -- the supersets of the current erasure candidates
       -- are guaranteed to be safe also
       let ex' = removeErasePowersets e ex 
-      tailres <- tryAllErase cfg finfo bindPairs ex'
+      tailres <- tryAllErase log cfg finfo bindPairs ex'
       return $ (e,res):tailres
     else do
-      tailres <- tryAllErase cfg finfo bindPairs ex
+      tailres <- tryAllErase log cfg finfo bindPairs ex
       return tailres
   
 -- fault local algo 3: erase refinements
 -- calculate powerset and cull away redundant solver calls
 -- this takes up a lot of memory, hangs for even small programs
-faultLocal3 :: Config -> FInfo Cinfo -> IO [RealSrcSpan]
-faultLocal3 cfg finfo = do
+faultLocal3 :: Handle -> Config -> FInfo Cinfo -> IO [RealSrcSpan]
+faultLocal3 log cfg finfo = do
   let (bindPairs, finfo') = runState copyBindings finfo
   let eraseLists = powerset (createEraseList finfo') >>= cartProduct
   let eraseLists' = sortBy (\x y -> length x `compare` length y) eraseLists
 
-  sols <- tryAllErase cfg finfo' bindPairs eraseLists'
+  sols <- tryAllErase log cfg finfo' bindPairs eraseLists'
+  hPutStrLn log "solution: "
+  hPrint log $ map fst sols
   -- TODO: this is kind of broken, so don't return anything for now
   return []
 
@@ -268,15 +290,16 @@ tryBinding cfg finfo idlist = do
   let finfo' = finfo { bs = env { beBinds = map' } }
   solve cfg finfo' 
 
-tryBindings :: Config -> FInfo Cinfo -> [[BindId]] -> [BindId] -> IO [BindId]
-tryBindings cfg finfo [] acc = return acc
-tryBindings cfg finfo (bindids:bs) acc = do
-  putStr "Trying bindings "
-  print bindids
+tryBindings :: Handle -> Config -> FInfo Cinfo -> [[BindId]] -> [BindId] -> IO [BindId]
+tryBindings log cfg finfo [] acc = return acc
+tryBindings log cfg finfo (bindids:bs) acc = do
+  hPutStrLn log "trying bindings: "
+  hPrint log bindids
   let map = getBindMap finfo
   (r, sol) <- tryBinding cfg finfo bindids
   case r of 
     Safe -> do
+      hPutStrLn log "implicated!"
       impbinds <- forM bindids (\bindid -> do
         let bindval = M.lookup bindid map
         case bindval of
@@ -284,8 +307,10 @@ tryBindings cfg finfo (bindids:bs) acc = do
             return [bindid]
           Nothing ->
             return [])
-      tryBindings cfg finfo bs ((impbinds >>= id) ++ acc)
-    _ -> tryBindings cfg finfo bs acc
+      tryBindings log cfg finfo bs ((impbinds >>= id) ++ acc)
+    _ -> do
+      hPutStrLn log "not implicated!"
+      tryBindings log cfg finfo bs acc
 
 printBinding :: FInfo Cinfo -> Handle -> BindId -> IO ()
 printBinding finfo h id = do
@@ -300,13 +325,15 @@ bindingToSrcSpan finfo id =
     Nothing -> []
 
 -- fault local algo 4: erase refinements of bindings
-faultLocal4 :: Config -> FInfo Cinfo -> IO [RealSrcSpan]
-faultLocal4 cfg finfo = do
+faultLocal4 :: Handle -> Config -> FInfo Cinfo -> IO [RealSrcSpan]
+faultLocal4 log cfg finfo = do
   -- gather bindings used in the constraints
   let gammas = foldr (\c acc -> (getGamma c):acc) [] (M.elems $ cm finfo)
   let bindings = S.toList $ S.unions gammas
   let trylist = map (\bind -> [bind]) bindings
-  impbinds <- tryBindings cfg finfo trylist []
+  impbinds <- tryBindings log cfg finfo trylist []
+  hPutStrLn log "solution: "
+  hPrint log impbinds
   return $ uniqueSrcSpans $ impbinds >>= bindingToSrcSpan finfo
 
 {-
@@ -391,11 +418,20 @@ faultLocal cfg finfo = do
     then return ()
     else createDirectory flDir
 
-  -- output list of implicated source locations
-  let flname = flDir ++ (srcFile cfg) ++ ".flout"
   -- let algos = [("Filter constraints (delta debugging)", faultLocal1), ("Erase constraint refinements (delta debugging)", faultLocal2), ("Erase constraint refinements (powerset)", faultLocal3), ("Erase binding refinements", faultLocal4)
   let algos = [("Filter constraints (delta debugging)", faultLocal1), ("Erase constraint refinements (delta debugging)", faultLocal2), ("Erase binding refinements", faultLocal4)]
-  results <- forM algos (\(_, fl) -> fl cfg finfo)
+
+  -- output log of algorithms
+  let logname = flDir ++ (srcFile cfg) ++ ".fllog"
+  results <- withFile logname WriteMode $ \log -> do
+    forM algos $ \(name, fl) -> do
+      hPutStrLn log "####################"
+      hPutStrLn log name
+      hPutStrLn log "####################"
+      fl log cfg finfo
+
+  -- output list of implicated source locations
+  let flname = flDir ++ (srcFile cfg) ++ ".flout"
   withFile flname WriteMode $ \file -> do
     let algoResults = zip (map fst algos) results
     forM_ algoResults $ \(name,result) -> do

@@ -20,7 +20,7 @@ import qualified Language.Fixpoint.Config as FC
 import qualified Language.Haskell.Liquid.DiffCheck as DC
 import           Language.Fixpoint.Misc
 import           Language.Fixpoint.Interface
-import           Language.Fixpoint.Types (sinfo, FixResult(..))
+import           Language.Fixpoint.Types (SubC(..), sinfo, FixResult(..))
 import           Language.Haskell.Liquid.Types
 import           Language.Haskell.Liquid.Errors
 import           Language.Haskell.Liquid.CmdLine
@@ -188,8 +188,15 @@ flDir = ".liquidfl/"
 printResults cfg r sol = case r of 
   Unsafe cons -> do 
     let errname = flDir ++ (head $ files cfg) ++ ".errout"
-    withFile errname WriteMode (\file -> do
-      forM_ cons (hPrint file . ci_loc . sinfo))
+    withFile errname WriteMode $ \file -> do
+      hPutStrLn file "####################"
+      hPutStrLn file "Constraints"
+      hPutStrLn file "####################"
+      forM_ cons (hPrint file . sid)
+      hPutStrLn file "####################"
+      hPutStrLn file "Source locations"
+      hPutStrLn file "####################"
+      forM_ (uniqueSrcSpans (map (ci_loc . sinfo) cons)) (hPrint file)
 
     let errHtml = flDir ++ (head $ files cfg) ++ ".errout.html"
     let locs = (uniqueSrcSpans . map (ci_loc . sinfo)) cons
