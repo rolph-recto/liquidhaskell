@@ -2,7 +2,6 @@ LiquidHaskell [![Build Status](https://travis-ci.org/ucsd-progsys/liquidhaskell.
 =============
 
 
-
 Requirements
 ------------
 
@@ -295,6 +294,25 @@ checked to be decreasing. However, the explicit hint
 
 tells LiquidHaskell to instead use the *third* argument. 
 
+Apart from specifying a specific decreasing measure for an Algebraic Data Type, 
+the user can specify that the ADT follows the expected decreasing measure by 
+
+  {-@ autosize L @-}
+
+Then, LiquidHaskell will define an instance of the function `autosize` for `L` that decreases by 1 at each recursive call and use `autosize` at functions that recurse on `L`. 
+
+For example, `autosize L` will refine the data constroctors of `L a` with the `autosize :: a -> Int` information, such that 
+
+   Nil  :: {v:L a | autosize v = 0}
+   Cons :: x:a -> xs:L a -> {v:L a | autosize v = 1 + autosize xs}
+   
+Also, an invariant that `autosize` is non negative will be generated
+
+  invariant  {v:L a| autosize v >= 0 }
+  
+This information is all LiquidHaskell needs to prove termination on functions that recurse on `L a` (on ADTs in general.)
+
+
 To *disable* termination checking for `foo` that is, to *assume* that it 
 is terminating (possibly for some complicated reason currently beyond the 
 scope of LiquidHaskell) you can write
@@ -355,16 +373,17 @@ tests/pos/mutrec.hs for the full example).
 Lazy Variables
 --------------
 
-A variable cab be specified as `LAZYVAR`
+A variable can be specified as `LAZYVAR`
 
     {-@ LAZYVAR z @-}
 
 With this annotation the definition of `z` will be checked at the points where
 it is used. For example, with the above annotation the following code is SAFE:
 
-    foo = if x > 0 then z else x
-      where z = 42 `safeDiv` x
-            x = choose 0
+    foo   = if x > 0 then z else x
+      where 
+        z = 42 `safeDiv` x
+        x = choose 0
 
 By default, all the variables starting with `fail` are marked as LAZY, to defer
 failing checks at the point where these variables are used.

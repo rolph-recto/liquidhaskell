@@ -1,12 +1,16 @@
 {-# LANGUAGE TupleSections  #-}
+{-# LANGUAGE CPP #-}
 
 {-@ LIQUID "--cabaldir" @-}
 {-@ LIQUID "--diff"     @-}
 
-import           Data.Maybe
+#if __GLASGOW_HASKELL__ < 710
 import           Data.Monoid      (mconcat, mempty)
-import           System.Exit
 import           Control.Applicative ((<$>))
+#endif
+
+import           Data.Maybe
+import           System.Exit
 import           Control.Monad
 import           Control.DeepSeq
 import           Text.PrettyPrint.HughesPJ
@@ -20,7 +24,7 @@ import qualified Language.Fixpoint.Config as FC
 import qualified Language.Haskell.Liquid.DiffCheck as DC
 import           Language.Fixpoint.Misc
 import           Language.Fixpoint.Interface
-import           Language.Fixpoint.Types (SubC(..), sinfo, FixResult(..))
+import           Language.Fixpoint.Types (SubC(..), sinfo, Result(..), FixResult(..))
 import           Language.Haskell.Liquid.Types
 import           Language.Haskell.Liquid.Errors
 import           Language.Haskell.Liquid.CmdLine
@@ -31,13 +35,14 @@ import           Language.Haskell.Liquid.Constraint.Types
 import           Language.Haskell.Liquid.TransformRec
 import           Language.Haskell.Liquid.Annotate (mkOutput, generateHtml)
 import qualified Language.Haskell.Liquid.ACSS as A
-import Language.Haskell.Liquid.GhcMisc (Loc(..), srcSpanStartLoc, srcSpanEndLoc)
-import Data.HashMap.Strict as M hiding (map,foldr,filter,null)
-import Data.List
-import SrcLoc
+import           Language.Haskell.Liquid.GhcMisc (Loc(..), srcSpanStartLoc, srcSpanEndLoc)
+import           Data.HashMap.Strict as M hiding (map,foldr,filter,null)
+import           Data.List
+import           SrcLoc
 -- import           Language.Haskell.Liquid.FaultLocal
 import           FaultLocal
 import           System.Environment (getArgs)
+import qualified Text.JSON as J
 
 main :: IO b
 main = do cfg0     <- getOpts
@@ -48,9 +53,7 @@ main = do cfg0     <- getOpts
           case ecode of 
             ExitSuccess   -> exitWith ecode
             ExitFailure _ -> do
-              putStrLn "Do you want to perform fault localization (yes/no)?"
-              ans <- getLine
-              if ans == "yes"
+              if faultLocal cfg0
                 then do
                   checkOneFL cfg0 $ head $ files cfg0
                   exitWith ecode
@@ -74,10 +77,10 @@ checkOneFL cfg0 t = do
 liquidOneFL target info = do
   let cfg = config $ spec info 
   let cbs' = transformScope (cbs info)
-  dc <- prune cfg cbs' target info
+  prune cfg cbs' target info
   let cgi = {-# SCC "generateConstraints" #-} generateConstraints $! info {cbs = cbs'}
   finfo <- cgInfoFInfo info cgi
-  faultLocal (fx cfg) finfo
+  runFaultLocal (fx cfg) finfo
   where
      fx cfg = def { FC.solver  = fromJust (smtsolver cfg)
               , FC.real    = real   cfg
@@ -101,6 +104,7 @@ liquidOneFL target info = do
 -- test() for delta debugging algorithm
 -- intuitively, check if set of constraints cons induces
 -- failure of the refinement
+{-
 testDelta cfg target cgi info dc cons = do
   putStrLn $ "testing delta: " ++ (show $ length cons)
   let cgi' = cgi { fixCs = cons }
@@ -126,6 +130,7 @@ deltaDebug cfg target cgi info dc cons r = do
               d1 <- deltaDebug cfg target cgi info dc c1 (c2 ++ r)
               d2 <- deltaDebug cfg target cgi info dc c2 (c1 ++ r)
               return (d1 ++ d2)
+-}
     
 
 checkOne :: Config -> FilePath -> IO (Output Doc)
@@ -158,60 +163,52 @@ liquidOne target info =
      DC.saveResult target out'
      exitWithResult cfg target out'
 
--- checkedNames ::  Maybe DC.DiffCheck -> Maybe [Name.Name]
+checkedNames ::  Maybe DC.DiffCheck -> Maybe [String]
 checkedNames dc          = concatMap names . DC.newBinds <$> dc
    where
      names (NonRec v _ ) = [showpp $ shvar v]
      names (Rec xs)      = map (shvar . fst) xs
      shvar               = showpp . varName
 
-
--- prune :: Config -> [CoreBind] -> FilePath -> GhcInfo -> IO (Maybe Diff)
-prune cfg cbs target info
-  | not (null vs) = return . Just $ DC.DC (DC.thin cbs vs) mempty sp
-  | diffcheck cfg = DC.slice target cbs sp
+prune :: Config -> [CoreBind] -> FilePath -> GhcInfo -> IO (Maybe DC.DiffCheck)
+prune cfg cbinds target info
+  | not (null vs) = return . Just $ DC.DC (DC.thin cbinds vs) mempty sp
+  | diffcheck cfg = DC.slice target cbinds sp
   | otherwise     = return Nothing
   where
     vs            = tgtVars sp
     sp            = spec info
 
-uniqueSrcSpans :: [SrcSpan] -> [RealSrcSpan]
-uniqueSrcSpans locs = nub $ locs >>= realLocs
-  where realLocs (RealSrcSpan loc) = [loc]
-        realLocs (UnhelpfulSpan _)   = []
-
-generateFLAnnotation :: [RealSrcSpan] -> A.AnnMap
-generateFLAnnotation locs = A.Ann { A.types = M.empty, A.errors = errlocs, A.status = A.Unsafe }
-  where errlocs = map (\loc -> (srcSpanStartLoc loc, srcSpanEndLoc loc, "possible error location")) locs
 
 flDir = ".liquidfl/"
 printResults cfg r sol = case r of 
-  Unsafe cons -> do 
-    let errname = flDir ++ (head $ files cfg) ++ ".errout"
-    withFile errname WriteMode $ \file -> do
-      hPutStrLn file "####################"
-      hPutStrLn file "Constraints"
-      hPutStrLn file "####################"
-      forM_ cons (hPrint file . sid)
-      hPutStrLn file "####################"
-      hPutStrLn file "Source locations"
-      hPutStrLn file "####################"
-      forM_ (uniqueSrcSpans (map (ci_loc . sinfo) cons)) (hPrint file)
+  Unsafe c -> dumpErrOut c
 
-    let errHtml = flDir ++ (head $ files cfg) ++ ".errout.html"
-    let locs = (uniqueSrcSpans . map (ci_loc . sinfo)) cons
-    let annots = generateFLAnnotation locs
-    generateHtml (head $ files cfg) errHtml annots
+  Crash c _ -> dumpErrOut c
+  
+  UnknownError _ -> dumpErrOut []
 
   Safe -> do
     putStrLn "Solution: "
     print sol
   
-  _ -> return ()
+  where dumpErrOut cons = do
+          -- emit JSON file of error output
+          let errname = flDir ++ (head $ files cfg) ++ ".errout"
+          withFile errname WriteMode $ \file -> do
+            let conIDs = J.showJSONs $ map sid cons
+            let locs = J.showJSONs $ uniqueSrcSpans $ map (ci_loc . sinfo) cons
+            let jres =  J.makeObj [("cons",conIDs),("locs",locs),("time",J.showJSON (0:: Int))]
+            hPutStr file $ J.encode jres
+
+          let errHtml = flDir ++ (head $ files cfg) ++ ".errout.html"
+          let locs = (uniqueSrcSpans . map (ci_loc . sinfo)) cons
+          let annots = generateFLAnnotation locs
+          generateHtml (head $ files cfg) errHtml annots
 
 solveCs cfg target cgi info dc
   = do finfo    <- cgInfoFInfo info cgi
-       (r, sol) <- solve fx finfo
+       Result r sol <- solve fx finfo
        printResults cfg r sol
        let names = checkedNames dc
        let warns = logErrors cgi

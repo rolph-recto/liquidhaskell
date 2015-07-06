@@ -1,5 +1,7 @@
 module FaultLocal (
-  faultLocal
+  runFaultLocal,
+  uniqueSrcSpans, generateFLAnnotation,
+  flResultToJSON
 ) where
 
 import Data.List
@@ -8,19 +10,22 @@ import Data.HashMap.Strict as M hiding (map,foldr,filter)
 import Control.Monad.State
 import Control.Monad
 import Text.Read hiding (get)
+import qualified Text.JSON as J
 import System.IO
 import System.Directory
 import SrcLoc
 import Data.Text (Text, pack, unpack)
 import Text.Karver
+import System.CPUTime (getCPUTime)
 
 import Language.Fixpoint.Interface
 import Language.Fixpoint.Types hiding (Status(..))
 import Language.Fixpoint.Config
-import Language.Haskell.Liquid.Types (Cinfo(..))
+import Language.Haskell.Liquid.Types hiding (Result(..), Config)
 import qualified Language.Haskell.Liquid.ACSS as A
 import Language.Haskell.Liquid.Annotate (generateHtml)
 import Language.Haskell.Liquid.GhcMisc (Loc(..), srcSpanStartLoc, srcSpanEndLoc)
+import Language.Fixpoint.Partition
 
 uniqueSrcSpans :: [SrcSpan] -> [RealSrcSpan]
 uniqueSrcSpans locs = nub $ locs >>= realLocs
@@ -28,9 +33,9 @@ uniqueSrcSpans locs = nub $ locs >>= realLocs
         realLocs (UnhelpfulSpan _)   = []
 
 -- FAULT LOCAL ALGO 1
-isSafe :: Result a -> Bool
-isSafe (Safe, _) = True
-isSafe _  = False
+isSafe :: FixResult (SubC Cinfo) -> Bool
+isSafe Safe = True
+isSafe _    = False
 
 -- higher order delta debugging algo
 -- just needs a test function for it to work
@@ -57,7 +62,7 @@ testConstraints log cfg finfo _ cons  = do
   hPutStrLn log "testing constraint set "
   hPrint log $ map fst cons
   let finfo' = finfo { cm = M.fromList cons }
-  res <- solve cfg finfo'
+  Result res _ <- solve cfg finfo'
   if isSafe res
     then do
       hPutStrLn log "safe!"
@@ -78,20 +83,12 @@ faultLocal1 log cfg finfo = do
 
 -- FAULT LOCAL ALGO 2
 -- calculate the powerset of a set
-powerset :: [a] -> [[a]]
-powerset []     = [[]]
-powerset (x:xs) = let ptail = powerset xs in ptail ++ map (x:) ptail
-
-cartProduct :: [[a]] -> [[a]]
-cartProduct [] = [[]]
-cartProduct (x:xs) = x >>= (\e -> map (e:) (cartProduct xs))
-
 data Polarity = LHS | RHS
 
 makeBlankReft :: Polarity -> SortedReft -> SortedReft
-makeBlankReft LHS (RR sort (Reft (sym, Refa pred))) = 
+makeBlankReft LHS (RR sort (Reft (sym, Refa _))) = 
   RR sort (Reft (sym, Refa PFalse))
-makeBlankReft RHS (RR sort (Reft (sym, Refa pred))) = 
+makeBlankReft RHS (RR sort (Reft (sym, Refa _))) = 
   RR sort (Reft (sym, Refa PTrue))
 
 -- make a blank copy of a single binding
@@ -112,9 +109,9 @@ copyBindings = do
   forM bmap copyBinding
 
 
-data EraseItem =  EraseBind { subc :: Integer, bind :: BindId }
-                | EraseLHS { subc :: Integer }
-                | EraseRHS { subc :: Integer }
+data EraseItem =  EraseBind Integer BindId
+                | EraseLHS Integer
+                | EraseRHS Integer
                 deriving (Eq)
 
 instance Show EraseItem where
@@ -129,7 +126,7 @@ instance Show EraseItem where
 createEraseList :: FInfo Cinfo -> [[EraseItem]]
 createEraseList finfo = 
   let subcs = M.toList $ cm finfo in 
-  map (\(id,subc) -> [EraseLHS id, EraseRHS id]) subcs
+  map (\(id,_) -> [EraseLHS id, EraseRHS id]) subcs
 
 -- erase the left/right hand refinement of a subtyping constraint
 eraseSubCReft :: Integer -> Polarity -> State (FInfo Cinfo) ()
@@ -149,18 +146,16 @@ eraseSubCReft subcID pol = do
 
 -- erase a single refinement
 applyEraseItem :: [(BindId, BindId)] -> EraseItem -> State (FInfo Cinfo) ()
-applyEraseItem bindPairs (EraseBind subcID bind) = return ()
-applyEraseItem bindPairs (EraseLHS subcID) = do
+applyEraseItem _ (EraseBind _ _) = return ()
+applyEraseItem _ (EraseLHS subcID) = do
   eraseSubCReft subcID LHS
-applyEraseItem bindPairs (EraseRHS subcID) = do
+applyEraseItem _ (EraseRHS subcID) = do
   eraseSubCReft subcID RHS
  
 -- erase a list of refinements
 applyEraseList :: [EraseItem] -> [(BindId, BindId)] -> State (FInfo Cinfo) ()
 applyEraseList eraseList bindPairs = do
-  finfo <- get
   forM_ eraseList (applyEraseItem bindPairs)
-
   
 -- apply single candidate erasures of refinements
 -- then try to solve new constraint set
@@ -174,7 +169,7 @@ testErase :: Handle -> Config -> FInfo Cinfo -> [(BindId, BindId)] -> [EraseItem
 testErase log cfg finfo bindPairs eraseList = do
   hPutStrLn log "testing erase items: "
   hPrint log eraseList
-  res <- tryErase cfg finfo bindPairs eraseList
+  Result res _ <- tryErase cfg finfo bindPairs eraseList
   if isSafe res
     then do
       hPutStrLn log "safe!"
@@ -182,21 +177,6 @@ testErase log cfg finfo bindPairs eraseList = do
     else do
       hPutStrLn log "not safe!"
       return False
-
-printEraseItem :: Handle -> FInfo Cinfo -> EraseItem -> IO ()
-printEraseItem h finfo (EraseLHS id) = do
-  case M.lookup id (cm finfo) of
-    Just con -> do
-      hPutStrLn h "eraseLHS"
-      hPrint h $ ci_loc $ sinfo con
-    Nothing -> return ()
-printEraseItem h finfo (EraseRHS id) = do
-  case M.lookup id (cm finfo) of
-    Just con -> do
-      hPutStrLn h "eraseRHS"
-      hPrint h $ ci_loc $ sinfo con
-    Nothing -> return ()
-printEraseItem h finfo _ = return ()
 
 eraseItemToSrcSpan :: FInfo Cinfo -> EraseItem -> [SrcSpan]
 eraseItemToSrcSpan finfo (EraseLHS id) =
@@ -223,6 +203,14 @@ faultLocal2 log cfg finfo = do
   hPrint log sol
   return $ uniqueSrcSpans $ sol >>= eraseItemToSrcSpan finfo
 
+{-
+powerset :: [a] -> [[a]]
+powerset []     = [[]]
+powerset (x:xs) = let ptail = powerset xs in ptail ++ map (x:) ptail
+
+cartProduct :: [[a]] -> [[a]]
+cartProduct [] = [[]]
+cartProduct (x:xs) = x >>= (\e -> map (e:) (cartProduct xs))
 
 -- FAULT LOCAL ALGO 3
 removeErasePowersets :: [EraseItem] -> [[EraseItem]] -> [[EraseItem]]
@@ -261,6 +249,7 @@ faultLocal3 log cfg finfo = do
   hPrint log $ map fst sols
   -- TODO: this is kind of broken, so don't return anything for now
   return []
+-}
 
 
 -- FAULT LOCAL ALGO 4
@@ -274,7 +263,7 @@ getBindMap finfo = case bs finfo of
 eraseRefinement :: BindId -> BindMap (Symbol, SortedReft) -> BindMap (Symbol, SortedReft)
 eraseRefinement id map =
   case M.lookup id map of
-    Just (sym, RR sort (Reft (sym2, Refa pred))) -> 
+    Just (sym, RR sort (Reft (sym2, Refa _))) -> 
       -- let newbind = (sym, RR sort (Reft (sym2, Refa $ PNot pred))) in
       let newbind = (sym, RR sort (Reft (sym2, Refa PFalse))) in
       -- let newbind = (sym, RR sort (Reft (sym2, Refa PTrue))) in
@@ -282,28 +271,29 @@ eraseRefinement id map =
     -- no refinement to erase, so just return the original map
     Nothing -> map
 
-tryBinding :: Config -> FInfo Cinfo -> [BindId] -> IO (Result Cinfo)
+tryBinding :: Config -> FInfo Cinfo -> [BindId] -> IO (FixResult (SubC Cinfo))
 tryBinding cfg finfo idlist = do
   let env = bs finfo
   let map = getBindMap finfo
   let map' = foldr eraseRefinement map idlist
   let finfo' = finfo { bs = env { beBinds = map' } }
-  solve cfg finfo' 
+  Result res _ <- solve cfg finfo' 
+  return res
 
 tryBindings :: Handle -> Config -> FInfo Cinfo -> [[BindId]] -> [BindId] -> IO [BindId]
-tryBindings log cfg finfo [] acc = return acc
+tryBindings _ _ _ [] acc = return acc
 tryBindings log cfg finfo (bindids:bs) acc = do
   hPutStrLn log "trying bindings: "
   hPrint log bindids
   let map = getBindMap finfo
-  (r, sol) <- tryBinding cfg finfo bindids
+  r <- tryBinding cfg finfo bindids
   case r of 
     Safe -> do
       hPutStrLn log "implicated!"
       impbinds <- forM bindids (\bindid -> do
         let bindval = M.lookup bindid map
         case bindval of
-          Just bind -> do
+          Just _ -> do
             return [bindid]
           Nothing ->
             return [])
@@ -311,12 +301,6 @@ tryBindings log cfg finfo (bindids:bs) acc = do
     _ -> do
       hPutStrLn log "not implicated!"
       tryBindings log cfg finfo bs acc
-
-printBinding :: FInfo Cinfo -> Handle -> BindId -> IO ()
-printBinding finfo h id = do
-  case M.lookup id (bindInfo finfo) of
-    Just (Ci loc _) -> hPrint h loc
-    Nothing -> return()
 
 bindingToSrcSpan :: FInfo Cinfo -> BindId -> [SrcSpan]
 bindingToSrcSpan finfo id =
@@ -390,19 +374,45 @@ get
 
 partitionConstraints :: [ConsID] -> [[ConsID]]
 partitionConstraints cons = foldr
-
+-}
 
 -- fault local algo 5: like algo 1, but partition constraint set
 -- into equiv classes that share kvars and variables and run
 -- delta debugging on those equiv classes separately
 -- the solution is the union of the delta debug solutions
 -- of every equiv class
-faultLocal5 :: Config -> FInfo Cinfo -> IO [RealSrcSpan]
-faultLocal5 cfg finfo = do
-  let cons = M.toList $ cm finfo
-  let consPart
--}
+faultLocal5 :: Handle -> Config -> FInfo Cinfo -> IO [RealSrcSpan]
+faultLocal5 log cfg finfo = do
+  let (graph,part) = partition' finfo
+
+  hPutStr log "Number of partitions:"
+  hPrint log $ length part
+  hPutStrLn log "KVGraph:"
+  hPrint log graph
   
+  results <- forM part $ \finfoPart -> faultLocal1 log cfg finfoPart
+  return $ nub $ results >>= id
+
+realSrcSpanToTup :: RealSrcSpan -> (Int,Int,Int,Int)
+realSrcSpanToTup loc = (sline,scol,eline,ecol)
+  where sline = srcSpanStartLine loc
+        scol  = srcSpanStartCol loc
+        eline = srcSpanEndLine loc
+        ecol  = srcSpanEndCol loc
+
+instance J.JSON RealSrcSpan where
+  showJSON loc  = let (sline,scol,eline,ecol) = realSrcSpanToTup loc in
+    J.makeObj [("sline",J.showJSON sline)
+              ,("scol",J.showJSON scol)
+              ,("eline",J.showJSON eline)
+              ,("ecol",J.showJSON ecol)]
+
+  readJSON _ = J.Error "decoding RealSrcSpan not supported currently"
+
+flResultToJSON :: (String, [RealSrcSpan], Double) -> J.JSValue
+flResultToJSON (name,locs,time) = J.makeObj [("name",J.JSString $ J.toJSString name)
+                                       ,("locs",J.showJSONs locs)
+                                       ,("time",J.showJSON time)]
 
 generateFLAnnotation :: [RealSrcSpan] -> A.AnnMap
 generateFLAnnotation locs = A.Ann { A.types = M.empty, A.errors = errlocs, A.status = A.Unsafe }
@@ -411,15 +421,15 @@ generateFLAnnotation locs = A.Ann { A.types = M.empty, A.errors = errlocs, A.sta
 flDir = ".liquidfl/"
 tmpCompareFile = "/.cabal/template.flcompare.html"
 
-faultLocal :: Config -> FInfo Cinfo -> IO ()
-faultLocal cfg finfo = do
+runFaultLocal :: Config -> FInfo Cinfo -> IO ()
+runFaultLocal cfg finfo = do
   dirExist <- doesDirectoryExist flDir
   if dirExist
     then return ()
     else createDirectory flDir
 
-  -- let algos = [("Filter constraints (delta debugging)", faultLocal1), ("Erase constraint refinements (delta debugging)", faultLocal2), ("Erase constraint refinements (powerset)", faultLocal3), ("Erase binding refinements", faultLocal4)
-  let algos = [("Filter constraints (delta debugging)", faultLocal1), ("Erase constraint refinements (delta debugging)", faultLocal2), ("Erase binding refinements", faultLocal4)]
+  let algos = [("Filter constraints", faultLocal1), ("Erase constraint refinements", faultLocal2), ("Erase binding refinements", faultLocal4), ("Filter constraints in connected components", faultLocal5)]
+  -- let algos = [("Filter constraints", faultLocal1), ("Erase constraint refinements", faultLocal2), ("Erase binding refinements", faultLocal4)]
 
   -- output log of algorithms
   let logname = flDir ++ (srcFile cfg) ++ ".fllog"
@@ -428,20 +438,30 @@ faultLocal cfg finfo = do
       hPutStrLn log "####################"
       hPutStrLn log name
       hPutStrLn log "####################"
-      fl log cfg finfo
+      start <- getCPUTime
+      locs <- fl log cfg finfo
+      end <- getCPUTime
+      let diff = (fromIntegral (end - start)) / (10^12) :: Double
+      return (locs, diff)
 
   -- output list of implicated source locations
+  -- this is a JSON file
+
   let flname = flDir ++ (srcFile cfg) ++ ".flout"
   withFile flname WriteMode $ \file -> do
-    let algoResults = zip (map fst algos) results
+    let algoResults = (uncurry $ zip3 $ map fst algos) (unzip results)
+    let jsonRes = J.JSArray $ map flResultToJSON algoResults
+    hPutStr file $ J.encode jsonRes
+    {-
     forM_ algoResults $ \(name,result) -> do
       hPutStrLn file "####################"
       hPutStrLn file name
       forM result ((hPutStrLn file). show)
+    -}
   
   -- output annotated html files
-  let annotFiles = map (\(i, (name,_)) -> flDir ++ (srcFile cfg) ++ ".flannot" ++ (show i) ++ ".html") $ zip [1..] algos
-  forM_ (zip annotFiles results) $ \(fname, result) -> do
+  let annotFiles = map (\(i, _) -> flDir ++ (srcFile cfg) ++ ".flannot" ++ (show i) ++ ".html") $ zip [1..] algos
+  forM_ (zip annotFiles results) $ \(fname, (result,_)) -> do
     let annots = generateFLAnnotation result
     generateHtml (srcFile cfg) fname annots
   

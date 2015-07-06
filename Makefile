@@ -21,7 +21,7 @@ DEPS=unix-compat transformers mtl filemanip text parsec ghc-paths deepseq comona
 ##############################################################################
 
 fast:
-	$(CABAL) install -fdevel --ghc-options=$(FASTOPTS) 
+	$(CABAL) install -fdevel --ghc-options=$(FASTOPTS)
 
 debug-fixpoint:
 	# deregister and then reregister liquid-fixpoint
@@ -31,23 +31,30 @@ debug-fixpoint:
 	$(CABAL) sandbox hc-pkg -- unregister liquid-fixpoint --force
 	$(CABAL) sandbox add-source ../liquid-fixpoint
 
-first: 
+first:
 	$(CABAL) install --ghc-options=$(FASTOPTS) --only-dependencies --enable-tests --enable-benchmarks
 
 dist:
-	$(CABAL) install --ghc-options=$(DISTOPTS) 
-
+	# $(CABAL) install --ghc-options=$(DISTOPTS)
+	$(CABAL) configure -fdevel --enable-tests --disable-library-profiling -O2
+	$(CABAL) build
+	
 prof:
-	$(CABAL) install --enable-executable-profiling --enable-library-profiling --ghc-options=$(PROFOPTS) 
+	$(CABAL) install --enable-executable-profiling --enable-library-profiling --ghc-options=$(PROFOPTS)
+
+prof710:
+	$(CABAL) install --enable-profiling --ghc-options=$(PROFOPTS)
+
 
 igotgoto:
-	$(CABAL) build --ghc-options=$(OPTS) 
+	$(CABAL) build --ghc-options=$(OPTS)
 	cp dist/build/liquid/liquid ~/.cabal/bin/
 
 copy-binaries:
 	cp .cabal-sandbox/bin/fixpoint ~/.cabal/bin/
 	cp .cabal-sandbox/bin/fixpoint.native ~/.cabal/bin/
 	cp .cabal-sandbox/bin/liquid ~/.cabal/bin/
+	cp .cabal-sandbox/bin/liquidfl ~/.cabal/bin/
 
 debug-install:
 	$(CABAL) install --ghc-options=$(FASTOPTS) 
@@ -80,6 +87,11 @@ test:
 	$(CABAL) exec $(TASTY) -- --smtsolver $(SMTSOLVER) --hide-successes --rerun-update -p 'Unit/' -j$(THREADS) +RTS -N$(THREADS) -RTS
 	# $(CABAL) exec $(TASTY) -- --smtsolver $(SMTSOLVER) --liquid-opts='$(LIQUIDOPTS)' --hide-successes --rerun-update -p 'Unit/' -j$(THREADS) +RTS -N$(THREADS) -RTS
 
+test710:
+	$(CABAL) configure -fdevel --enable-tests --disable-library-profiling -O2
+	$(CABAL) build
+	$(TASTY) --smtsolver $(SMTSOLVER) --hide-successes --rerun-update -p 'Unit/' -j$(THREADS) +RTS -N$(THREADS) -RTS
+
 
 retest:
 	cabal configure -fdevel --enable-tests --disable-library-profiling -O2
@@ -91,10 +103,24 @@ all-test:
 	cabal build
 	cabal exec $(TASTY) -- --smtsolver $(SMTSOLVER) --hide-successes --rerun-update -j$(THREADS) +RTS -N$(THREADS) -RTS
 
+all-test-710:
+	cabal configure -fdevel --enable-tests --disable-library-profiling -O2
+	cabal build
+	$(TASTY) --smtsolver $(SMTSOLVER) --hide-successes --rerun-update -j$(THREADS) +RTS -N$(THREADS) -RTS
+
+
+
 all-retest:
 	cabal configure -fdevel --enable-tests --disable-library-profiling -O2
 	cabal build
 	cabal exec $(TASTY) -- --smtsolver $(SMTSOLVER) --hide-successes --rerun-filter "exceptions,failures,new" --rerun-update -j$(THREADS) +RTS -N$(THREADS) -RTS
+
+all-retest-710:
+	cabal configure -fdevel --enable-tests --disable-library-profiling -O2
+	cabal build
+	$(TASTY) --smtsolver $(SMTSOLVER) --hide-successes --rerun-filter "exceptions,failures,new" --rerun-update -j$(THREADS) +RTS -N$(THREADS) -RTS
+
+
 
 lint:
 	hlint --colour --report .

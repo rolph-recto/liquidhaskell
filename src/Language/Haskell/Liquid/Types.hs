@@ -276,6 +276,7 @@ data Config = Config {
   , cabalDir       :: Bool       -- ^ find and use .cabal file to include paths to sources for imported modules
   , ghcOptions     :: [String]   -- ^ command-line options to pass to GHC
   , cFiles         :: [String]   -- ^ .c files to compile and link against (for GHC)
+  , faultLocal     :: Bool       -- ^ (EXPERIMENTAL) run fault localization algos if file doesn't typecheck
   } deriving (Data, Typeable, Show, Eq)
 
 
@@ -362,7 +363,8 @@ data GhcSpec = SP {
   , decr       :: ![(Var, [Int])]                -- ^ Lexicographically ordered size witnesses for termination
   , texprs     :: ![(Var, [Expr])]               -- ^ Lexicographically ordered expressions for termination
   , lvars      :: !(S.HashSet Var)               -- ^ Variables that should be checked in the environment they are used
-  , lazy       :: !(S.HashSet Var)               -- ^ Binders to IGNORE during termination checking
+  , lazy       :: !(S.HashSet Var)             -- ^ Binders to IGNORE during termination checking
+  , autosize   :: !(S.HashSet TyCon)             -- ^ Binders to IGNORE during termination checking
   , config     :: !Config                        -- ^ Configuration Options
   , exports    :: !NameSet                       -- ^ `Name`s exported by the module being verified
   , measures   :: [Measure SpecType DataCon]
@@ -1034,7 +1036,7 @@ instance (PPrint r, Reftable r) => Reftable (UReft r) where
   toReft (U r ps _)  = toReft r `meet` toReft ps
   params (U r _ _)   = params r
   bot (U r _ s)      = U (bot r) (Pr []) (bot s)
-  top (U r p s)      = U (top r) (top p) (top s)
+  top (U r p s)      = U (top r) (top p) s
 
   ofReft r = U (ofReft r) mempty mempty
 

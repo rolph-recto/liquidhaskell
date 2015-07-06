@@ -51,7 +51,7 @@ import Language.Fixpoint.Config            hiding (Config, real, native, getOpts
 import Language.Fixpoint.Files
 import Language.Fixpoint.Misc
 import Language.Fixpoint.Names             (dropModuleNames)
-import Language.Fixpoint.Types
+import Language.Fixpoint.Types             hiding (Result)
 import Language.Haskell.Liquid.Annotate
 import Language.Haskell.Liquid.GhcMisc
 import Language.Haskell.Liquid.Misc
@@ -156,6 +156,10 @@ config = cmdArgsMode $ Config {
     = def &= name "c-files"
           &= typ "OPTION"
           &= help "Tell GHC to compile and link against these files"
+
+ , faultLocal
+    = def
+          &= help "(EXPERIMENTAL) Run fault localization algorithms"
 
  } &= verbosity
    &= program "liquid"
@@ -290,7 +294,7 @@ fixCabalDirs' cfg i = cfg { idirs      = nub $ idirs cfg ++ sourceDirs i ++ buil
 
 
 instance Monoid Config where
-  mempty        = Config def def def def def def def def def def def def def def def def 2 def def def def def def
+  mempty        = Config def def def def def def def def def def def def def def def def 2 def def def def def def def
   mappend c1 c2 = Config { files          = sortNub $ files c1   ++     files          c2
                          , idirs          = sortNub $ idirs c1   ++     idirs          c2
                          , fullcheck      = fullcheck c1         ||     fullcheck      c2
@@ -314,6 +318,7 @@ instance Monoid Config where
                          , cabalDir       = cabalDir    c1       ||     cabalDir       c2
                          , ghcOptions     = ghcOptions c1        ++     ghcOptions     c2
                          , cFiles         = cFiles c1            ++     cFiles         c2
+                         , faultLocal     = faultLocal c1        ||     faultLocal     c2
                          }
 
 instance Monoid SMTSolver where
@@ -340,7 +345,6 @@ exitWithResult cfg target out
        return $ out { o_result = r }
     where
        r         = o_result out `addErrors` o_errors out
-
 
 
 writeCheckVars Nothing     = return ()
