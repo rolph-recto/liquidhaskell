@@ -54,7 +54,6 @@ copy-binaries:
 	cp .cabal-sandbox/bin/fixpoint ~/.cabal/bin/
 	cp .cabal-sandbox/bin/fixpoint.native ~/.cabal/bin/
 	cp .cabal-sandbox/bin/liquid ~/.cabal/bin/
-	cp .cabal-sandbox/bin/liquidfl ~/.cabal/bin/
 
 debug-install:
 	$(CABAL) install --ghc-options=$(FASTOPTS) 

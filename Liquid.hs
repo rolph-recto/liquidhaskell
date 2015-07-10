@@ -19,6 +19,7 @@ import           Var
 import           System.Console.CmdArgs.Verbosity (whenLoud)
 import           System.Console.CmdArgs.Default
 import           System.IO
+import           System.Directory
 
 import qualified Language.Fixpoint.Config as FC
 import qualified Language.Haskell.Liquid.DiffCheck as DC
@@ -193,12 +194,19 @@ printResults cfg r sol = case r of
     print sol
   
   where dumpErrOut cons = do
+          -- create flDir if it doesn't exist
+          dirExists <- doesDirectoryExist flDir
+          if dirExists
+            then return ()
+            else createDirectory flDir
+
           -- emit JSON file of error output
           let errname = flDir ++ (head $ files cfg) ++ ".errout"
           withFile errname WriteMode $ \file -> do
             let conIDs = J.showJSONs $ map sid cons
             let locs = J.showJSONs $ uniqueSrcSpans $ map (ci_loc . sinfo) cons
-            let jres =  J.makeObj [("cons",conIDs),("locs",locs),("time",J.showJSON (0:: Int))]
+            let info = J.JSString $ J.toJSString $ foldr (\x acc -> x ++ " " ++ acc) "" $ map (maybe "" show . sid) cons
+            let jres =  J.makeObj [("cons",conIDs),("locs",locs),("info",info),("time",J.showJSON (0:: Int))]
             hPutStr file $ J.encode jres
 
           let errHtml = flDir ++ (head $ files cfg) ++ ".errout.html"

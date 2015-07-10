@@ -4,19 +4,20 @@ module FaultLocal (
   flResultToJSON
 ) where
 
-import Data.List
+import qualified Data.List as L
 import Data.HashSet as S hiding (map,foldr,filter)
 import Data.HashMap.Strict as M hiding (map,foldr,filter)
+import qualified Data.Vector as V
 import Control.Monad.State
 import Control.Monad
 import Text.Read hiding (get)
 import qualified Text.JSON as J
 import System.IO
 import System.Directory
+import System.CPUTime (getCPUTime)
 import SrcLoc
 import Data.Text (Text, pack, unpack)
-import Text.Karver
-import System.CPUTime (getCPUTime)
+import Data.Time.Clock.POSIX (getPOSIXTime)
 
 import Language.Fixpoint.Interface
 import Language.Fixpoint.Types hiding (Status(..))
@@ -27,8 +28,11 @@ import Language.Haskell.Liquid.Annotate (generateHtml)
 import Language.Haskell.Liquid.GhcMisc (Loc(..), srcSpanStartLoc, srcSpanEndLoc)
 import Language.Fixpoint.Partition
 
+joinStrs :: String -> [String] -> String
+joinStrs j l = foldr (\x acc -> acc ++ j ++ x) "" l
+
 uniqueSrcSpans :: [SrcSpan] -> [RealSrcSpan]
-uniqueSrcSpans locs = nub $ locs >>= realLocs
+uniqueSrcSpans locs = L.nub $ locs >>= realLocs
   where realLocs (RealSrcSpan loc) = [loc]
         realLocs (UnhelpfulSpan _)   = []
 
@@ -72,16 +76,16 @@ testConstraints log cfg finfo _ cons  = do
       return False
 
 -- fault local algo 1: remove constraints
-faultLocal1 :: Handle -> Config -> FInfo Cinfo -> IO [RealSrcSpan]
+faultLocal1 :: Handle -> Config -> FInfo Cinfo -> IO ([RealSrcSpan], String)
 faultLocal1 log cfg finfo = do
   let cons = M.toList $ cm finfo
   sol <- deltaDebug (testConstraints log) cfg finfo () cons []
   hPutStrLn log "found solution: "
   hPrint log $ map fst sol
-  return $ (uniqueSrcSpans . map (ci_loc . sinfo . snd)) sol
+  return $ ((uniqueSrcSpans . map (ci_loc . sinfo . snd)) sol, joinStrs " " $ map (show . fst) sol)
 
 
--- FAULT LOCAL ALGO 2
+----- FAULT LOCAL ALGO 2
 -- calculate the powerset of a set
 data Polarity = LHS | RHS
 
@@ -194,14 +198,14 @@ eraseItemToSrcSpan finfo (EraseBind _ bid) =
 
 -- fault local algo 2: erase refinements
 -- use delta debugging algo
-faultLocal2 :: Handle -> Config -> FInfo Cinfo -> IO [RealSrcSpan]
+faultLocal2 :: Handle -> Config -> FInfo Cinfo -> IO ([RealSrcSpan],String)
 faultLocal2 log cfg finfo = do
   let (bindPairs, finfo') = runState copyBindings finfo
   let eraseList = createEraseList finfo' >>= id
   sol <- deltaDebug (testErase log) cfg finfo bindPairs eraseList []
   hPutStrLn log "found solution: "
   hPrint log sol
-  return $ uniqueSrcSpans $ sol >>= eraseItemToSrcSpan finfo
+  return $ (uniqueSrcSpans $ sol >>= eraseItemToSrcSpan finfo, joinStrs " " $ map show sol)
 
 {-
 powerset :: [a] -> [[a]]
@@ -309,7 +313,7 @@ bindingToSrcSpan finfo id =
     Nothing -> []
 
 -- fault local algo 4: erase refinements of bindings
-faultLocal4 :: Handle -> Config -> FInfo Cinfo -> IO [RealSrcSpan]
+faultLocal4 :: Handle -> Config -> FInfo Cinfo -> IO ([RealSrcSpan],String)
 faultLocal4 log cfg finfo = do
   -- gather bindings used in the constraints
   let gammas = foldr (\c acc -> (getGamma c):acc) [] (M.elems $ cm finfo)
@@ -318,17 +322,26 @@ faultLocal4 log cfg finfo = do
   impbinds <- tryBindings log cfg finfo trylist []
   hPutStrLn log "solution: "
   hPrint log impbinds
-  return $ uniqueSrcSpans $ impbinds >>= bindingToSrcSpan finfo
+  return $ (uniqueSrcSpans $ impbinds >>= bindingToSrcSpan finfo, joinStrs " " $ map show impbinds)
 
-{-
+-- FAULT LOCAL ALGO 5
+-- constraint filtering on connected components
 
 type ConsID = (Integer, SubC Cinfo)
 type ConsVars = ([KVar], [Symbol])
+type ConsGraph = [(Integer, Integer)]
 
-collectVars :: ConsID -> ConsVars
-collectVars (_, con) = foldTup traversePred [reftPred $ lhsCs con, reftPred $ rhsCs con]
-  where foldTup f elems acc = foldr (foldTupF f) acc elems
-        foldTupF f pred acc = let vars = f pred in ((fst vars) ++ (fst acc), (snd vars) ++ (snd acc)) ([], []) 
+
+-- collect kvars in a constraint
+-- returns a tuple (left, right)
+-- where left is the list of kvars on the LHS of a constraint
+-- and right is the list of kvars on the RHS of a constraint
+collectVars :: ConsID -> (ConsVars, ConsVars)
+collectVars (_, con) = (left, right) 
+  where left = foldTup traversePred [reftPred $ lhsCs con] ([],[])
+        right = foldTup traversePred [reftPred $ rhsCs con] ([],[])
+        foldTup f elems acc = foldr (foldTupF f) acc elems
+        foldTupF f pred acc = let vars = f pred in ((fst vars) ++ (fst acc), (snd vars) ++ (snd acc))
         traversePred PTrue = ([],[])
         traversePred PFalse = ([], [])
         traversePred (PAnd preds) = foldTup traversePred preds ([],[])
@@ -337,61 +350,137 @@ collectVars (_, con) = foldTup traversePred [reftPred $ lhsCs con, reftPred $ rh
         traversePred (PImp p q) = foldTup traversePred [p, q] ([],[])
         traversePred (PIff p q) = foldTup traversePred [p, q] ([],[])
         traversePred (PBexp e) = traverseExpr e
-        traversePred (Atom e1 e2) = foldTup traverseExpr [e1, e2] ([],[])
-        traversePred (PKvar kv _) = ([kv], [])
+        traversePred (PAtom _ e1 e2) = foldTup traverseExpr [e1, e2] ([],[])
+        traversePred (PKVar kv _) = ([kv], [])
         traversePred (PAll _ p) = traversePred p
         traversePred PTop = ([],[])
-        traverseExpr (ESym s) = ([],[])
-        traverseExpr (ECon c) = ([],[])
+        traverseExpr (ESym _) = ([],[])
+        traverseExpr (ECon _) = ([],[])
         traverseExpr (EVar v) = ([], [v])
-        traverseExpr (ELit l s) = ([], [])
-        traverseExpr (App s exprs) = foldTup traverseExpr exprs ([],[])
-        traverseExpr (EBin op e1 e2) = foldTup traverseExpr [e1, e2] ([],[])
+        traverseExpr (ELit _ _) = ([], [])
+        traverseExpr (ENeg e) = traverseExpr e
+        traverseExpr (EApp _ exprs) = foldTup traverseExpr exprs ([],[])
+        traverseExpr (EBin _ e1 e2) = foldTup traverseExpr [e1, e2] ([],[])
         traverseExpr (EIte pred e1 e2) = foldTup traverseExpr [e1,e2] (traversePred pred)
-        traverseExpr (ECst e s) = traverseExpr e
+        traverseExpr (ECst e _) = traverseExpr e
         traverseExpr EBot = ([],[])
 
 -- check if there is an edge between two constraints
-consShareVars :: (ConsID, ConsVars) -> (ConsID, ConsVars) -> Bool
-consShareVars (c1,(k1,v1)) (c2,(k2,v2)) =
-  let shareKVars = any (\k -> k `elem` k2) k1 in
-  let shareVars = any (\v -> `elem` v2) v1 in
-  shareKVars || shareVars
+consShareVars :: (ConsID, (ConsVars, ConsVars)) -> (ConsID, (ConsVars, ConsVars)) -> Bool
+consShareVars (_,(_,(k1,_))) (_,((k2,_),_)) = any (\k -> k `elem` k2) k1
 
 -- create constraint graph
-makeConsGraph :: [ConsID] -> [(ConsID, ConsID)]
+makeConsGraph :: [ConsID] -> ConsGraph
 makeConsGraph []    = []
 makeConsGraph cons  = toConsEdge $ makeConsGraph_ $ map (\c -> (c, collectVars c)) cons
-  where toConsEdge g = map (\(c1,c2) -> (fst c1, fst c2)) g
-        makeConsGraph_ = (makeEdges x xs) ++ (makeConsGraph_ xs)
-        makeEdges e []      = []
-        makeEdges e (e':es) = let tedges = makeEdges e es in
-                              if consShareVars e e' then (e,e'):tedges else tedges
+  where toConsEdge            = map (\(c1,c2) -> (fst $ fst c1, fst $ fst c2))
+        makeConsGraph_ []     = []
+        makeConsGraph_ (x:xs) = (makeEdges x xs) ++ (makeConsGraph_ xs)
+        makeEdges _ []        = []
+        makeEdges e (e':es)   = let tedges = makeEdges e es in
+                                if consShareVars e e'
+                                  then (e,e'):tedges
+                                  else
+                                    if consShareVars e' e
+                                      then (e',e):tedges
+                                      else tedges
 
--- calculate the connected components of the constraint graph
-getConnComponents :: [(ConsID, ConsID)] -> [[ConsID]]
-get
+-- get list of transitively reachable nodes 
+-- do this by dfs
+consReachable :: ConsGraph -> Integer -> [Integer]
+consReachable graph node = dfs graph [node] []
+  where dfs _ [] visited     = visited
+        dfs g (n:ns) visited = dfs g (neighbors g (n:visited) n ++ ns) (n:visited)
+        neighbors g v n = unvisited v $ g >>= \(e1,e2) ->
+          if e1 == n then [e2] else (if e2 == n then [e1] else [])
+        unvisited v   = filter (not . (flip elem v))
 
-partitionConstraints :: [ConsID] -> [[ConsID]]
-partitionConstraints cons = foldr
--}
+-- calculate connected components of a graph
+-- do this by running dfs on each node
+-- and placing the node on the correct conn component
+getConnComponents :: [ConsID] -> ConsGraph -> (ConsGraph, [[ConsID]])
+getConnComponents cons g  = (g, connBindings ccs)
+-- getConnComponents cons g  = (g, ccs)
+  where ids               = map fst cons
+        ccs               = map ccToConsID $ getCC ids []
+        ccToConsID cs     = cs >>= consToConsID cons
+        consToConsID [] _       = []
+        consToConsID (x@(cid',_):cs) cid = if cid == cid'
+          then [x]
+          else consToConsID cs cid
+        getCC []     ccs  = ccs
+        getCC (x:xs) ccs  = getCC xs $ insertCC x ccs
+        insertCC x []     = [consReachable g x]
+        insertCC x (c:cs) = if shareCC x c
+                              then if x `elem` c 
+                                     then c:cs
+                                     else (x:c):cs
+                              else c:(insertCC x cs)
+        shareCC x c          = any (flip elem $ c) $ consReachable g x
+
+-- EXPERIMENTAL: connected CCs that share non-trivial bindings
+-- non-trivial bindings are those that aren't in all constraints
+connBindings []            = []
+connBindings ccomps = newccs
+  where newccs            = map (>>= id) $ getCC ccomps []
+        getCC [] ccs      = ccs
+        getCC (x:xs) ccs  = getCC xs $ insertCC x ccs
+        insertCC x []     = [[x]]
+        insertCC x (c:cs) = if shareBinds x c
+                              then if inCC x c
+                                     then c:cs
+                                     else (x:c):cs
+                              else c:(insertCC x cs)
+        ccBinds c         = map (filter (flip elem nontrivialBinds) . elemsIBindEnv . senv . snd) c >>= id
+        nontrivialBinds   = filter (\b -> not $ all (b `elem`) consBinds) allBinds
+        allBinds          = L.nub $ consBinds >>= id
+        consBinds         = map (elemsIBindEnv . senv . snd) cons
+        cons              = ccomps >>= id
+        shareBinds x y    = any (flip elem $ map ccBinds y >>= id) $ ccBinds x
+        inCC x c          = any (== map fst x) $ map (map fst) c
+
+-- calculate graph and then connected component of KVGraph
+partitionConstraints :: [ConsID] -> (ConsGraph, [[ConsID]])
+partitionConstraints cons  = getConnComponents cons $ makeConsGraph cons
+
+partitionFInfo :: FInfo Cinfo -> (ConsGraph, [FInfo Cinfo])
+partitionFInfo finfo =
+  let (graph, ccs) = partitionConstraints $ M.toList $ cm finfo in
+  (graph, map (\cons -> finfo { cm = M.fromList cons }) ccs)
 
 -- fault local algo 5: like algo 1, but partition constraint set
 -- into equiv classes that share kvars and variables and run
 -- delta debugging on those equiv classes separately
 -- the solution is the union of the delta debug solutions
 -- of every equiv class
-faultLocal5 :: Handle -> Config -> FInfo Cinfo -> IO [RealSrcSpan]
+faultLocal5 :: Handle -> Config -> FInfo Cinfo -> IO ([RealSrcSpan],String)
 faultLocal5 log cfg finfo = do
-  let (graph,part) = partition' finfo
+  -- let (graph,part) = partition' finfo
+  let (graph,part) = partitionFInfo finfo
 
   hPutStr log "Number of partitions:"
   hPrint log $ length part
   hPutStrLn log "KVGraph:"
   hPrint log graph
   
-  results <- forM part $ \finfoPart -> faultLocal1 log cfg finfoPart
-  return $ nub $ results >>= id
+  results <- forM (zip [1..] part) $ \(i, finfoPart) -> do
+    -- only run delta debugging on partitions that have
+    -- unsatisfiable constraints
+    hPutStrLn log $ "testing partition " ++ (show i)
+
+    partSafe <- testConstraints log cfg finfoPart () $ M.toList $ cm finfoPart
+    if partSafe
+      then do
+        hPutStrLn log "connected component is safe. skipping "
+        return ([]," ")
+      else do
+        hPutStrLn log "connected component is unsafe. running constraint filtering"
+        faultLocal1 log cfg finfoPart
+
+  let (locs, ids) = unzip results 
+  let locs' = L.nub $ locs >>= id
+  let ids' = concat ids
+  return $ (locs', ids')
 
 realSrcSpanToTup :: RealSrcSpan -> (Int,Int,Int,Int)
 realSrcSpanToTup loc = (sline,scol,eline,ecol)
@@ -409,67 +498,78 @@ instance J.JSON RealSrcSpan where
 
   readJSON _ = J.Error "decoding RealSrcSpan not supported currently"
 
-flResultToJSON :: (String, [RealSrcSpan], Double) -> J.JSValue
-flResultToJSON (name,locs,time) = J.makeObj [("name",J.JSString $ J.toJSString name)
+flResultToJSON :: (String, [RealSrcSpan], String, Double) -> J.JSValue
+flResultToJSON (name,locs,info,time) = J.makeObj [("name",J.JSString $ J.toJSString name)
                                        ,("locs",J.showJSONs locs)
+                                       ,("info",J.JSString $ J.toJSString info)
                                        ,("time",J.showJSON time)]
 
 generateFLAnnotation :: [RealSrcSpan] -> A.AnnMap
 generateFLAnnotation locs = A.Ann { A.types = M.empty, A.errors = errlocs, A.status = A.Unsafe }
   where errlocs = map (\loc -> (srcSpanStartLoc loc, srcSpanEndLoc loc, "possible error location")) locs
 
-flDir = ".liquidfl/"
-tmpCompareFile = "/.cabal/template.flcompare.html"
+-- I don't want to add the tuple package as a dependency
+-- so here are some alternatives ... 
+fst3 :: (a,b,c) -> a
+fst3 (x,_,_) = x
+
+snd3 :: (a,b,c) -> b
+snd3 (_,y,_) = y
+
+thd3 :: (a,b,c) -> c
+thd3 (_,_,z) = z
+
+liquidDir   = ".liquid/"
+liquidflDir = ".liquidfl/"
+fqExt       = ".fq"
 
 runFaultLocal :: Config -> FInfo Cinfo -> IO ()
 runFaultLocal cfg finfo = do
+  let sfile = srcFile cfg
+
+  t <- round `liftM` getPOSIXTime
+  let flDir = liquidflDir ++ (show t) ++ "/"
+
+  -- create flDir if it doesn't exist
   dirExist <- doesDirectoryExist flDir
   if dirExist
     then return ()
     else createDirectory flDir
 
+  -- save extant fq file and others from being overwritten
+  copyFile (liquidDir ++ sfile ++ fqExt) (fldir ++ sfile ++ fqExt)
+
   let algos = [("Filter constraints", faultLocal1), ("Erase constraint refinements", faultLocal2), ("Erase binding refinements", faultLocal4), ("Filter constraints in connected components", faultLocal5)]
-  -- let algos = [("Filter constraints", faultLocal1), ("Erase constraint refinements", faultLocal2), ("Erase binding refinements", faultLocal4)]
+  -- let algos = [("Filter constraints in connected components", faultLocal5)]
 
   -- output log of algorithms
-  let logname = flDir ++ (srcFile cfg) ++ ".fllog"
+  let logname = flDir ++ sfile ++ ".fllog"
   results <- withFile logname WriteMode $ \log -> do
     forM algos $ \(name, fl) -> do
       hPutStrLn log "####################"
       hPutStrLn log name
       hPutStrLn log "####################"
       start <- getCPUTime
-      locs <- fl log cfg finfo
+      (locs, info) <- fl log cfg finfo
       end <- getCPUTime
       let diff = (fromIntegral (end - start)) / (10^12) :: Double
-      return (locs, diff)
+      return (locs, info, diff)
 
   -- output list of implicated source locations
   -- this is a JSON file
-
-  let flname = flDir ++ (srcFile cfg) ++ ".flout"
+  let algoNames = map fst algos
+  let algoLocs = map fst3 results
+  let algoInfo = map snd3 results
+  let algoTime = map thd3 results
+  let algoResults = L.zip4 algoNames algoLocs algoInfo algoTime
+  let jsonRes = J.JSArray $ map flResultToJSON algoResults
+  let flname = flDir ++ sfile ++ ".flout"
   withFile flname WriteMode $ \file -> do
-    let algoResults = (uncurry $ zip3 $ map fst algos) (unzip results)
-    let jsonRes = J.JSArray $ map flResultToJSON algoResults
     hPutStr file $ J.encode jsonRes
-    {-
-    forM_ algoResults $ \(name,result) -> do
-      hPutStrLn file "####################"
-      hPutStrLn file name
-      forM result ((hPutStrLn file). show)
-    -}
   
   -- output annotated html files
-  let annotFiles = map (\(i, _) -> flDir ++ (srcFile cfg) ++ ".flannot" ++ (show i) ++ ".html") $ zip [1..] algos
-  forM_ (zip annotFiles results) $ \(fname, (result,_)) -> do
+  let annotFiles = map (\(i, _) -> flDir ++ sfile ++ ".flannot" ++ (show i) ++ ".html") $ zip [1..] algos
+  forM_ (zip annotFiles results) $ \(fname, (result,_,_)) -> do
     let annots = generateFLAnnotation result
-    generateHtml (srcFile cfg) fname annots
-  
-  -- output html file that compares annotated html files
-  let cmpflname = flDir ++ (srcFile cfg) ++ ".flcompare.html"
-  homeDir <- getHomeDirectory
-  tplStr <- readFile (homeDir ++ tmpCompareFile)
-  let litSrcName = Literal $ pack $ srcFile cfg
-  let htmlStr = renderTemplate (M.insert (pack "filename") litSrcName M.empty) (pack tplStr)
-  writeFile cmpflname (unpack htmlStr)
+    generateHtml sfile fname annots
   
