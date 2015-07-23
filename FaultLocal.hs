@@ -19,6 +19,10 @@ import SrcLoc
 import Data.Text (Text, pack, unpack)
 import Data.Time.Clock.POSIX (getPOSIXTime)
 
+-- for shuffling
+import System.Random
+import Data.Array.IO
+
 import Language.Fixpoint.Interface
 import Language.Fixpoint.Types hiding (Status(..))
 import Language.Fixpoint.Config
@@ -31,10 +35,13 @@ import Language.Fixpoint.Partition
 joinStrs :: String -> [String] -> String
 joinStrs j l = foldr (\x acc -> acc ++ j ++ x) "" l
 
+uniqueSrcSpan :: SrcSpan -> Maybe RealSrcSpan
+uniqueSrcSpan (RealSrcSpan loc) = Just loc
+uniqueSrcSpan (UnhelpfulSpan _) = Nothing
+
 uniqueSrcSpans :: [SrcSpan] -> [RealSrcSpan]
 uniqueSrcSpans locs = L.nub $ locs >>= realLocs
-  where realLocs (RealSrcSpan loc) = [loc]
-        realLocs (UnhelpfulSpan _)   = []
+  where realLocs = maybe [] (\x -> [x]) . uniqueSrcSpan
 
 -- FAULT LOCAL ALGO 1
 isSafe :: FixResult (SubC Cinfo) -> Bool
@@ -82,7 +89,7 @@ faultLocal1 log cfg finfo = do
   sol <- deltaDebug (testConstraints log) cfg finfo () cons []
   hPutStrLn log "found solution: "
   hPrint log $ map fst sol
-  return $ ((uniqueSrcSpans . map (ci_loc . sinfo . snd)) sol, joinStrs " " $ map (show . fst) sol)
+  return ((uniqueSrcSpans . map (ci_loc . sinfo . snd)) sol, joinStrs " " $ map (show . fst) sol)
 
 
 ----- FAULT LOCAL ALGO 2
@@ -336,9 +343,10 @@ type ConsGraph = [(Integer, Integer)]
 -- returns a tuple (left, right)
 -- where left is the list of kvars on the LHS of a constraint
 -- and right is the list of kvars on the RHS of a constraint
-collectVars :: ConsID -> (ConsVars, ConsVars)
-collectVars (_, con) = (left, right) 
-  where left = foldTup traversePred [reftPred $ lhsCs con] ([],[])
+collectVars :: BindEnv -> ConsID -> (ConsVars, ConsVars)
+collectVars env (_, con) = (left, right) 
+  where bindPreds = map (reftPred . sr_reft . snd) $ envCs env $ senv con
+        left = foldTup traversePred ((reftPred $ lhsCs con):bindPreds) ([],[])
         right = foldTup traversePred [reftPred $ rhsCs con] ([],[])
         foldTup f elems acc = foldr (foldTupF f) acc elems
         foldTupF f pred acc = let vars = f pred in ((fst vars) ++ (fst acc), (snd vars) ++ (snd acc))
@@ -370,12 +378,13 @@ consShareVars :: (ConsID, (ConsVars, ConsVars)) -> (ConsID, (ConsVars, ConsVars)
 consShareVars (_,(_,(k1,_))) (_,((k2,_),_)) = any (\k -> k `elem` k2) k1
 
 -- create constraint graph
-makeConsGraph :: [ConsID] -> ConsGraph
-makeConsGraph []    = []
-makeConsGraph cons  = toConsEdge $ makeConsGraph_ $ map (\c -> (c, collectVars c)) cons
+makeConsGraph :: BindEnv -> [ConsID] -> ConsGraph
+makeConsGraph _ []    = []
+makeConsGraph env cons  = toConsEdge $ makeConsGraph_ consVars
   where toConsEdge            = map (\(c1,c2) -> (fst $ fst c1, fst $ fst c2))
         makeConsGraph_ []     = []
         makeConsGraph_ (x:xs) = (makeEdges x xs) ++ (makeConsGraph_ xs)
+        consVars              = map (\c -> (c, collectVars env c)) cons
         makeEdges _ []        = []
         makeEdges e (e':es)   = let tedges = makeEdges e es in
                                 if consShareVars e e'
@@ -399,8 +408,8 @@ consReachable graph node = dfs graph [node] []
 -- do this by running dfs on each node
 -- and placing the node on the correct conn component
 getConnComponents :: [ConsID] -> ConsGraph -> (ConsGraph, [[ConsID]])
-getConnComponents cons g  = (g, connBindings ccs)
--- getConnComponents cons g  = (g, ccs)
+-- getConnComponents cons g  = (g, connBindings ccs)
+getConnComponents cons g  = (g, ccs)
   where ids               = map fst cons
         ccs               = map ccToConsID $ getCC ids []
         ccToConsID cs     = cs >>= consToConsID cons
@@ -440,12 +449,12 @@ connBindings ccomps = newccs
         inCC x c          = any (== map fst x) $ map (map fst) c
 
 -- calculate graph and then connected component of KVGraph
-partitionConstraints :: [ConsID] -> (ConsGraph, [[ConsID]])
-partitionConstraints cons  = getConnComponents cons $ makeConsGraph cons
+partitionConstraints :: BindEnv -> [ConsID] -> (ConsGraph, [[ConsID]])
+partitionConstraints env cons  = getConnComponents cons $ makeConsGraph env cons
 
 partitionFInfo :: FInfo Cinfo -> (ConsGraph, [FInfo Cinfo])
 partitionFInfo finfo =
-  let (graph, ccs) = partitionConstraints $ M.toList $ cm finfo in
+  let (graph, ccs) = partitionConstraints (bs finfo) (M.toList $ cm finfo) in
   (graph, map (\cons -> finfo { cm = M.fromList cons }) ccs)
 
 -- fault local algo 5: like algo 1, but partition constraint set
@@ -482,6 +491,53 @@ faultLocal5 log cfg finfo = do
   let ids' = concat ids
   return $ (locs', ids')
 
+
+-- FL ALGO 6
+
+-- Randomly shuffle a list in O(n)
+-- from https://wiki.haskell.org/Random_shuffle
+shuffle :: [a] -> IO [a]
+shuffle xs = do
+  ar <- newArray n xs
+  forM [1..n] $ \i -> do
+      j <- randomRIO (i,n)
+      vi <- readArray ar i
+      vj <- readArray ar j
+      writeArray ar j vi
+      return vj
+  where
+    n = length xs
+    newArray :: Int -> [a] -> IO (IOArray Int a)
+    newArray n xs =  newListArray (1,n) xs
+
+-- fault local algo 6:
+-- run constraint filtering several times while shuffling the
+-- constraints, and then take the intersection of the results
+-- this ensures that if there are multiply minimal failsets,
+-- that the algo will find them; and the intersection of these failsets
+-- most likely correspond to the bug location since they are the "real cause"
+-- if there is only one minimal set, then it will be found several times and
+-- its intersection is itself, so it will be returned as normal
+faultLocal6 :: Handle -> Config -> FInfo Cinfo -> IO ([RealSrcSpan],String)
+faultLocal6 log cfg finfo = do
+  shuffles <- sequence $ take 5 $ repeat $ shuffle $ M.toList $ cm finfo
+
+  -- return a list of con ids implicated for each shuffle
+  conslists <- forM (zip [1..] shuffles) $ \(id, cons) -> do
+    hPutStrLn log $ "running filt constraint for shuffle " ++ (show id)
+    sol <- deltaDebug (testConstraints log) cfg finfo () cons []
+    hPutStrLn log "found solution: "
+    hPrint log $ map fst sol
+    return $ map fst sol
+
+  -- return the intersection of the con lists returned
+  -- by definition, the intersection of all the con lists is a subset of 
+  -- the first con list; we compute this subset
+  let consids = filter (\con -> all (elem con) $ tail conslists) $ head conslists
+  let cons = filter (\con -> fst con `elem` consids) (M.toList $ cm finfo)
+  return ((uniqueSrcSpans . map (ci_loc . sinfo . snd)) cons, joinStrs " " $ map (show . fst) cons)
+
+
 realSrcSpanToTup :: RealSrcSpan -> (Int,Int,Int,Int)
 realSrcSpanToTup loc = (sline,scol,eline,ecol)
   where sline = srcSpanStartLine loc
@@ -503,6 +559,21 @@ flResultToJSON (name,locs,info,time) = J.makeObj [("name",J.JSString $ J.toJSStr
                                        ,("locs",J.showJSONs locs)
                                        ,("info",J.JSString $ J.toJSString info)
                                        ,("time",J.showJSON time)]
+
+nullLocJSON = J.makeObj [("sline",J.showJSON (0 ::Int))
+                        ,("scol",J.showJSON  (0 :: Int))
+                        ,("eline",J.showJSON (0 :: Int))
+                        ,("ecol",J.showJSON (0 :: Int))]
+
+conToJSON :: (Integer, SubC Cinfo) -> J.JSValue
+conToJSON (id, con) = J.makeObj [("id", J.showJSON id)
+                       ,("LHS", J.JSString $ J.toJSString $ show $ slhs con)
+                       ,("RHS", J.JSString $ J.toJSString $ show $ srhs con)
+                       ,("loc", maybe nullLocJSON J.showJSON $ uniqueSrcSpan $ ci_loc $ sinfo con)]
+
+consGraphToJSON :: ConsGraph -> J.JSValue
+consGraphToJSON graph = J.JSArray $ map edgeToJSON graph
+  where edgeToJSON (s,e) = J.makeObj [("source",J.showJSON s),("dest",J.showJSON e)]
 
 generateFLAnnotation :: [RealSrcSpan] -> A.AnnMap
 generateFLAnnotation locs = A.Ann { A.types = M.empty, A.errors = errlocs, A.status = A.Unsafe }
@@ -526,9 +597,11 @@ fqExt       = ".fq"
 runFaultLocal :: Config -> FInfo Cinfo -> IO ()
 runFaultLocal cfg finfo = do
   let sfile = srcFile cfg
-
+  {-
   t <- round `liftM` getPOSIXTime
   let flDir = liquidflDir ++ (show t) ++ "/"
+  -}
+  let flDir = liquidflDir
 
   -- create flDir if it doesn't exist
   dirExist <- doesDirectoryExist flDir
@@ -536,11 +609,11 @@ runFaultLocal cfg finfo = do
     then return ()
     else createDirectory flDir
 
-  -- save extant fq file and others from being overwritten
-  copyFile (liquidDir ++ sfile ++ fqExt) (fldir ++ sfile ++ fqExt)
+  -- save extant fq file in flDir
+  copyFile (liquidDir ++ sfile ++ fqExt) (flDir ++ sfile ++ fqExt)
 
-  let algos = [("Filter constraints", faultLocal1), ("Erase constraint refinements", faultLocal2), ("Erase binding refinements", faultLocal4), ("Filter constraints in connected components", faultLocal5)]
-  -- let algos = [("Filter constraints in connected components", faultLocal5)]
+  -- let algos = [("Filter constraints", faultLocal1), ("Erase constraint refinements", faultLocal2), ("Erase binding refinements", faultLocal4), ("Filter constraints in connected components", faultLocal5)]
+  let algos = [("Filter constraints", faultLocal1),("Filter constraints in connected components", faultLocal5),("Filter constraints intersection", faultLocal6)]
 
   -- output log of algorithms
   let logname = flDir ++ sfile ++ ".fllog"
@@ -563,9 +636,12 @@ runFaultLocal cfg finfo = do
   let algoTime = map thd3 results
   let algoResults = L.zip4 algoNames algoLocs algoInfo algoTime
   let jsonRes = J.JSArray $ map flResultToJSON algoResults
+  let jsonCons = J.JSArray $ map conToJSON $ M.toList $ cm finfo
+  let jsonGraph = consGraphToJSON $ makeConsGraph (bs finfo) (M.toList $ cm finfo)
+  let jsonObj = J.makeObj [("results", jsonRes), ("cons",jsonCons), ("graph", jsonGraph)]
   let flname = flDir ++ sfile ++ ".flout"
   withFile flname WriteMode $ \file -> do
-    hPutStr file $ J.encode jsonRes
+    hPutStr file $ J.encode jsonObj
   
   -- output annotated html files
   let annotFiles = map (\(i, _) -> flDir ++ sfile ++ ".flannot" ++ (show i) ++ ".html") $ zip [1..] algos
