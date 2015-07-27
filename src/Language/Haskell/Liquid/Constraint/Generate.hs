@@ -494,26 +494,30 @@ splitC (SubC γ (REx x tx t1) (REx x2 _ t2)) | x == x2
        splitC (SubC γ' t1 t2)
 
 splitC (SubC γ t1 (REx x tx t2))
-  = do γ' <- (γ, "addExBind 1") += (x, forallExprRefType γ tx)
-       splitC (SubC γ' t1 t2)
+  = do y <- fresh 
+       γ' <- (γ, "addExBind 1") += (y, forallExprRefType γ tx)
+       splitC (SubC γ' t1 (F.subst1 t2 (x, F.EVar y)))
 
 -- existential at the left hand side is treated like forall
 splitC (SubC γ (REx x tx t1) t2)
   = do -- let tx' = traceShow ("splitC: " ++ showpp z) tx
-       γ' <- (γ, "addExBind 1") += (x, forallExprRefType γ tx)
-       splitC (SubC γ' t1 t2)
+       y <- fresh 
+       γ' <- (γ, "addExBind 2") += (y, forallExprRefType γ tx)
+       splitC (SubC γ' (F.subst1 t1 (x, F.EVar y)) t2)
 
 splitC (SubC γ (RAllE x tx t1) (RAllE x2 _ t2)) | x == x2
-  = do γ' <- (γ, "addExBind 0") += (x, forallExprRefType γ tx)
+  = do γ' <- (γ, "addAllBind 0") += (x, forallExprRefType γ tx)
        splitC (SubC γ' t1 t2)
 
 splitC (SubC γ (RAllE x tx t1) t2)
-  = do γ' <- (γ, "addExBind 2") += (x, forallExprRefType γ tx)
-       splitC (SubC γ' t1 t2)
+  = do y  <- fresh 
+       γ' <- (γ, "addAABind 1") += (y, forallExprRefType γ tx)
+       splitC (SubC γ' (t1 `F.subst1` (x, F.EVar y)) t2)
 
 splitC (SubC γ t1 (RAllE x tx t2))
-  = do γ' <- (γ, "addExBind 2") += (x, forallExprRefType γ tx)
-       splitC (SubC γ' t1 t2)
+  = do y  <- fresh 
+       γ' <- (γ, "addAllBind 2") += (y, forallExprRefType γ tx)
+       splitC (SubC γ' t1 (F.subst1 t2 (x, F.EVar y)))
 
 splitC (SubC γ (RRTy env _ OCons t1) t2)
   = do γ' <- foldM (\γ (x, t) -> γ `addSEnv` ("splitS", x,t)) γ xts
@@ -1453,8 +1457,8 @@ consE γ (Var x)
        addLocA (Just x) (loc γ) (varAnn γ x t)
        return t
 
-consE γ (Lit c)
-  = refreshVV $ uRType $ literalFRefType (emb γ) c
+consE _ (Lit c)
+  = refreshVV $ uRType $ literalFRefType c
 
 consE γ e'@(App e (Type τ))
   = do RAllT α te <- checkAll ("Non-all TyApp with expr", e) <$> consE γ e
@@ -1686,7 +1690,7 @@ caseEnv γ x acs a _
        cγ     <- addBinders γ x' [(x', xt')]
        return cγ
 
-altReft γ _ (LitAlt l)   = literalFReft (emb γ) l
+altReft _ _ (LitAlt l)   = literalFReft l
 altReft γ acs DEFAULT    = mconcat [notLiteralReft l | LitAlt l <- acs]
   where notLiteralReft   = maybe mempty F.notExprReft . snd . literalConst (emb γ)
 altReft _ _ _            = error "Constraint : altReft"

@@ -39,5 +39,5 @@ css/
 
 *.smt2
 .liquid
-
 .cabal-sandbox/
+.dir-locals.el

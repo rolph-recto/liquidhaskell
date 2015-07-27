@@ -401,7 +401,7 @@ data TyConP = TyConP { freeTyVarsTy :: ![RTyVar]
                      , varianceTs   :: !VarianceInfo
                      , variancePs   :: !VarianceInfo
                      , sizeFun      :: !(Maybe (Symbol -> Expr))
-                     } deriving (Data, Typeable)
+                     } deriving (Generic, Data, Typeable)
 
 data DataConP = DataConP { dc_loc     :: !SourcePos
                          , freeTyVars :: ![RTyVar]
@@ -411,8 +411,10 @@ data DataConP = DataConP { dc_loc     :: !SourcePos
                          , tyArgs     :: ![(Symbol, SpecType)] -- ^ These are backwards, why??
                          , tyRes      :: !SpecType
                          , dc_locE    :: !SourcePos
-                         } deriving (Data, Typeable)
+                         } deriving (Generic, Data, Typeable)
 
+-- instance {-# OVERLAPPING #-} Data TyConP
+-- instance {-# OVERLAPPING #-} Data DataConP
 
 -- | Which Top-Level Binders Should be Verified
 data TargetVars = AllVars | Only ![Var]
@@ -592,6 +594,7 @@ data TyConInfo = TyConInfo
   , sizeFunction    :: !(Maybe (Symbol -> Expr)) -- ^ logical function that computes the size of the structure
   } deriving (Generic, Data, Typeable)
 
+-- instance {-# OVERLAPPING #-} Data TyConInfo
 
 instance Show TyConInfo where
   show (TyConInfo x y _) = show x ++ "\n" ++ show y
@@ -1667,11 +1670,11 @@ data CMeasure ty
        , cSort :: ty
        }
 
-data Def ty ctor 
-  = Def { 
+data Def ty ctor
+  = Def {
     measure :: LocSymbol
   , dparams :: [(Symbol, ty)]
-  , ctor    :: ctor 
+  , ctor    :: ctor
   , dsort   :: Maybe ty
   , binds   :: [(Symbol, Maybe ty)]
   , body    :: Body
@@ -1854,4 +1857,3 @@ liquidBegin = ['{', '-', '@']
 
 liquidEnd :: String
 liquidEnd = ['@', '-', '}']
-
