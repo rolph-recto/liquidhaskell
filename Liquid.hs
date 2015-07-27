@@ -56,7 +56,7 @@ main = do cfg0     <- getOpts
             ExitFailure _ -> do
               if faultLocal cfg0
                 then do
-                  checkOneFL cfg0 $ head $ files cfg0
+                  checkOneFL runFaultLocal cfg0 $ head $ files cfg0
                   exitWith ecode
                   {--
                   consFL <- checkOneFL cfg0 $ head $ files cfg0
@@ -65,29 +65,77 @@ main = do cfg0     <- getOpts
                     print $ ci_loc $ sinfo cons)
                   exitWith ecode
                   --}
-                else exitWith ecode
+                else
+                  if flrepl cfg0
+                    then do
+                      checkOneFL flRepl cfg0 $ head $ files cfg0
+                      exitWith ecode
+                    else exitWith ecode
 
-checkOneFL cfg0 t = do
+checkOneFL f cfg0 t = do
   val <- getGhcInfo cfg0 t
   case val of
     Left _ -> return []
     Right info -> do
-      liquidOneFL t info
+      liquidOneFL f t info
       return []
 
-liquidOneFL target info = do
+liquidOneFL f target info = do
   let cfg = config $ spec info 
   let cbs' = transformScope (cbs info)
   prune cfg cbs' target info
   let cgi = {-# SCC "generateConstraints" #-} generateConstraints $! info {cbs = cbs'}
   finfo <- cgInfoFInfo info cgi
-  runFaultLocal (fx cfg) finfo
+  f (fx cfg) finfo
   where
      fx cfg = def { FC.solver  = fromJust (smtsolver cfg)
               , FC.real    = real   cfg
               , FC.native  = native cfg
               , FC.srcFile = target
               }
+
+flRepl cfg finfo = do
+  putStr "b/w/q >>"
+  hFlush stdout
+  conStr <- getLine
+  let cons = words conStr
+  case head cons of
+    "b" -> do
+      let consid = map (\x -> read x :: Integer) $ tail cons
+      putStr "blacklisting cons:"
+      print consid
+      let cm' = M.fromList $ filter (not . flip elem consid . fst) $ M.toList $ cm finfo
+      solveNewCons cm'
+      
+    "w" -> do
+      let consid = map (\x -> read x :: Integer) $ tail cons
+      let cm' = M.fromList $ filter (flip elem consid . fst) $ M.toList $ cm finfo
+      putStrLn "WHITELISTED "
+      print consid
+      solveNewCons cm'
+
+    "q" -> return ()
+    _   -> flRepl cfg finfo
+
+  where solveNewCons cm' = do
+          let finfo' = finfo { cm = cm' }
+          Result res _ <- solve cfg finfo'
+          case res of 
+            Safe -> do
+              putStrLn "safe!"
+              flRepl cfg finfo
+            Unsafe fcons -> do
+              putStrLn "unsafe!"
+              sequence $ map (print . sid) fcons
+              flRepl cfg finfo
+            Crash fcons errmsg -> do
+              putStrLn "crash!"
+              putStrLn errmsg
+              sequence $ map (print . sid) fcons
+              flRepl cfg finfo
+            UnknownError errmsg -> do
+              putStrLn errmsg
+              flRepl cfg finfo
 
 
 {--

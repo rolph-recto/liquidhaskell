@@ -491,7 +491,7 @@ faultLocal5 log cfg finfo = do
   let ids' = concat ids
   return $ (locs', ids')
 
-
+{--
 -- FL ALGO 6
 
 -- Randomly shuffle a list in O(n)
@@ -536,6 +536,7 @@ faultLocal6 log cfg finfo = do
   let consids = filter (\con -> all (elem con) $ tail conslists) $ head conslists
   let cons = filter (\con -> fst con `elem` consids) (M.toList $ cm finfo)
   return ((uniqueSrcSpans . map (ci_loc . sinfo . snd)) cons, joinStrs " " $ map (show . fst) cons)
+--}
 
 
 realSrcSpanToTup :: RealSrcSpan -> (Int,Int,Int,Int)
@@ -613,7 +614,7 @@ runFaultLocal cfg finfo = do
   copyFile (liquidDir ++ sfile ++ fqExt) (flDir ++ sfile ++ fqExt)
 
   -- let algos = [("Filter constraints", faultLocal1), ("Erase constraint refinements", faultLocal2), ("Erase binding refinements", faultLocal4), ("Filter constraints in connected components", faultLocal5)]
-  let algos = [("Filter constraints", faultLocal1),("Filter constraints in connected components", faultLocal5),("Filter constraints intersection", faultLocal6)]
+  let algos = [("Filter constraints", faultLocal1),("Filter constraints in connected components", faultLocal5)]
 
   -- output log of algorithms
   let logname = flDir ++ sfile ++ ".fllog"

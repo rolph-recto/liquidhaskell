@@ -85,7 +85,6 @@ Executable liquid
                , aeson
                , bytestring
                , fingertree
-               , karver
                , json
                , liquidhaskell
 

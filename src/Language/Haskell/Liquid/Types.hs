@@ -277,6 +277,7 @@ data Config = Config {
   , ghcOptions     :: [String]   -- ^ command-line options to pass to GHC
   , cFiles         :: [String]   -- ^ .c files to compile and link against (for GHC)
   , faultLocal     :: Bool       -- ^ (EXPERIMENTAL) run fault localization algos if file doesn't typecheck
+  , flrepl         :: Bool       -- ^ (EXPERIMENTAL) REPL for fault localization
   } deriving (Data, Typeable, Show, Eq)
 
 

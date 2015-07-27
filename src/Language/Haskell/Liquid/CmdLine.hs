@@ -161,6 +161,10 @@ config = cmdArgsMode $ Config {
     = def
           &= help "(EXPERIMENTAL) Run fault localization algorithms"
 
+ , flrepl
+    = def
+          &= help "(EXPERIMENTAL) REPL for fault localization"
+
  } &= verbosity
    &= program "liquid"
    &= help    "Refinement Types for Haskell"
@@ -294,7 +298,7 @@ fixCabalDirs' cfg i = cfg { idirs      = nub $ idirs cfg ++ sourceDirs i ++ buil
 
 
 instance Monoid Config where
-  mempty        = Config def def def def def def def def def def def def def def def def 2 def def def def def def def
+  mempty        = Config def def def def def def def def def def def def def def def def 2 def def def def def def def def
   mappend c1 c2 = Config { files          = sortNub $ files c1   ++     files          c2
                          , idirs          = sortNub $ idirs c1   ++     idirs          c2
                          , fullcheck      = fullcheck c1         ||     fullcheck      c2
@@ -319,6 +323,7 @@ instance Monoid Config where
                          , ghcOptions     = ghcOptions c1        ++     ghcOptions     c2
                          , cFiles         = cFiles c1            ++     cFiles         c2
                          , faultLocal     = faultLocal c1        ||     faultLocal     c2
+                         , flrepl         = flrepl c1            ||     flrepl         c2
                          }
 
 instance Monoid SMTSolver where
