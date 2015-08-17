@@ -47,7 +47,7 @@ import qualified Text.JSON as J
 
 main :: IO b
 main = do cfg0     <- getOpts
-          res      <- mconcat <$> mapM (checkOne cfg0) (files cfg0)
+          (failedCons, res) <- mconcat <$> mapM (checkOne cfg0) (files cfg0)
           let ecode = resultExit $  {- traceShow "RESULT" $ -} o_result res
           -- putStrLn  $ "ExitCode: " ++ show ecode
           -- exitWith ecode
@@ -56,7 +56,7 @@ main = do cfg0     <- getOpts
             ExitFailure _ -> do
               if faultLocal cfg0
                 then do
-                  checkOneFL runFaultLocal cfg0 $ head $ files cfg0
+                  checkOneFL (runFaultLocal failedCons) cfg0 $ head $ files cfg0
                   exitWith ecode
                   {--
                   consFL <- checkOneFL cfg0 $ head $ files cfg0
@@ -182,12 +182,14 @@ deltaDebug cfg target cgi info dc cons r = do
 -}
     
 
-checkOne :: Config -> FilePath -> IO (Output Doc)
+checkOne :: Config -> FilePath -> IO ([Integer], Output Doc)
 checkOne cfg0 t = getGhcInfo cfg0 t >>= either errOut (liquidOne t)
   where
-    errOut r    = exitWithResult cfg0 t $ mempty { o_result = r}
+    errOut r    = do
+      doc <- exitWithResult cfg0 t $ mempty { o_result = r}
+      return ([], doc)
 
-liquidOne :: FilePath -> GhcInfo -> IO (Output Doc)
+liquidOne :: FilePath -> GhcInfo -> IO ([Integer], Output Doc)
 liquidOne target info =
   do donePhase Loud "Extracted Core using GHC"
      let cfg   = config $ spec info
@@ -206,11 +208,13 @@ liquidOne target info =
      let info' = maybe info (\z -> info {spec = DC.newSpec z}) dc
      let cgi   = {-# SCC "generateConstraints" #-} generateConstraints $! info' {cbs = cbs''}
      cgi `deepseq` donePhase Loud "generateConstraints"
-     out      <- solveCs cfg target cgi info' dc
+     (failedCons, out)      <- solveCs cfg target cgi info' dc
      donePhase Loud "solve"
      let out'  = mconcat [maybe mempty DC.oldOutput dc, out]
      DC.saveResult target out'
-     exitWithResult cfg target out'
+     outDoc <- exitWithResult cfg target out'
+     return (filtNothing failedCons, outDoc)
+     where filtNothing fc = fc >>= (\c -> maybe [] (\id -> [id]) c)
 
 checkedNames ::  Maybe DC.DiffCheck -> Maybe [String]
 checkedNames dc          = concatMap names . DC.newBinds <$> dc
@@ -231,15 +235,26 @@ prune cfg cbinds target info
 
 flDir = ".liquidfl/"
 printResults cfg r sol = case r of 
-  Unsafe c -> dumpErrOut c
+  Unsafe cons -> do
+    putStrLn "Unsafe!"
+    dumpErrOut cons
+    return $ map sid cons
 
-  Crash c _ -> dumpErrOut c
+  Crash cons _ -> do
+    putStrLn "Crash!"
+    dumpErrOut cons
+    return $ map sid cons
   
-  UnknownError _ -> dumpErrOut []
+  UnknownError _ -> do
+    putStrLn "Unknown error!"
+    dumpErrOut []
+    return []
 
   Safe -> do
+    putStrLn "Safe!"
     putStrLn "Solution: "
     print sol
+    return []
   
   where dumpErrOut cons = do
           -- create flDir if it doesn't exist
@@ -265,13 +280,13 @@ printResults cfg r sol = case r of
 solveCs cfg target cgi info dc
   = do finfo    <- cgInfoFInfo info cgi
        Result r sol <- solve fx finfo
-       printResults cfg r sol
+       failedCons <- printResults cfg r sol
        let names = checkedNames dc
        let warns = logErrors cgi
        let annm  = annotMap cgi
        let res   = ferr sol r
        let out0  = mkOutput cfg res sol annm
-       return    $ out0 { o_vars = names } { o_errors  = warns} { o_result = res }
+       return (failedCons, out0 { o_vars = names } { o_errors  = warns} { o_result = res })
     where
        fx        = def { FC.solver  = fromJust (smtsolver cfg)
                        , FC.real    = real   cfg

@@ -19,9 +19,8 @@ import SrcLoc
 import Data.Text (Text, pack, unpack)
 import Data.Time.Clock.POSIX (getPOSIXTime)
 
--- for shuffling
-import System.Random
-import Data.Array.IO
+import Data.Graph as G
+import Data.Tree as T
 
 import Language.Fixpoint.Interface
 import Language.Fixpoint.Types hiding (Status(..))
@@ -32,8 +31,20 @@ import Language.Haskell.Liquid.Annotate (generateHtml)
 import Language.Haskell.Liquid.GhcMisc (Loc(..), srcSpanStartLoc, srcSpanEndLoc)
 import Language.Fixpoint.Partition
 
+
+-- I don't want to add the tuple package as a dependency
+-- so here are some alternatives ... 
+fst3 :: (a,b,c) -> a
+fst3 (x,_,_) = x
+
+snd3 :: (a,b,c) -> b
+snd3 (_,y,_) = y
+
+thd3 :: (a,b,c) -> c
+thd3 (_,_,z) = z
+
 joinStrs :: String -> [String] -> String
-joinStrs j l = foldr (\x acc -> acc ++ j ++ x) "" l
+joinStrs j l = foldr (\x acc -> j ++ x ++ acc) "" l
 
 uniqueSrcSpan :: SrcSpan -> Maybe RealSrcSpan
 uniqueSrcSpan (RealSrcSpan loc) = Just loc
@@ -83,8 +94,8 @@ testConstraints log cfg finfo _ cons  = do
       return False
 
 -- fault local algo 1: remove constraints
-faultLocal1 :: Handle -> Config -> FInfo Cinfo -> IO ([RealSrcSpan], String)
-faultLocal1 log cfg finfo = do
+faultLocal1 :: Handle -> Config -> FInfo Cinfo -> [Integer] -> KVGraph -> IO ([RealSrcSpan], String)
+faultLocal1 log cfg finfo failedCons graph = do
   let cons = M.toList $ cm finfo
   sol <- deltaDebug (testConstraints log) cfg finfo () cons []
   hPutStrLn log "found solution: "
@@ -205,8 +216,8 @@ eraseItemToSrcSpan finfo (EraseBind _ bid) =
 
 -- fault local algo 2: erase refinements
 -- use delta debugging algo
-faultLocal2 :: Handle -> Config -> FInfo Cinfo -> IO ([RealSrcSpan],String)
-faultLocal2 log cfg finfo = do
+faultLocal2 :: Handle -> Config -> FInfo Cinfo -> [Integer] -> KVGraph -> IO ([RealSrcSpan],String)
+faultLocal2 log cfg finfo failedCons graph = do
   let (bindPairs, finfo') = runState copyBindings finfo
   let eraseList = createEraseList finfo' >>= id
   sol <- deltaDebug (testErase log) cfg finfo bindPairs eraseList []
@@ -320,8 +331,8 @@ bindingToSrcSpan finfo id =
     Nothing -> []
 
 -- fault local algo 4: erase refinements of bindings
-faultLocal4 :: Handle -> Config -> FInfo Cinfo -> IO ([RealSrcSpan],String)
-faultLocal4 log cfg finfo = do
+faultLocal4 :: Handle -> Config -> FInfo Cinfo -> [Integer] -> KVGraph -> IO ([RealSrcSpan],String)
+faultLocal4 log cfg finfo failedCons graph = do
   -- gather bindings used in the constraints
   let gammas = foldr (\c acc -> (getGamma c):acc) [] (M.elems $ cm finfo)
   let bindings = S.toList $ S.unions gammas
@@ -333,7 +344,6 @@ faultLocal4 log cfg finfo = do
 
 -- FAULT LOCAL ALGO 5
 -- constraint filtering on connected components
-
 type ConsID = (Integer, SubC Cinfo)
 type ConsVars = ([KVar], [Symbol])
 type ConsGraph = [(Integer, Integer)]
@@ -394,6 +404,9 @@ makeConsGraph env cons  = toConsEdge $ makeConsGraph_ consVars
                                       then (e',e):tedges
                                       else tedges
 
+finfoToConsGraph :: FInfo Cinfo -> ConsGraph
+finfoToConsGraph finfo = makeConsGraph (bs finfo) (M.toList $ cm finfo)
+
 -- get list of transitively reachable nodes 
 -- do this by dfs
 consReachable :: ConsGraph -> Integer -> [Integer]
@@ -443,11 +456,13 @@ connBindings ccomps = newccs
         ccBinds c         = map (filter (flip elem nontrivialBinds) . elemsIBindEnv . senv . snd) c >>= id
         nontrivialBinds   = filter (\b -> not $ all (b `elem`) consBinds) allBinds
         allBinds          = L.nub $ consBinds >>= id
+
         consBinds         = map (elemsIBindEnv . senv . snd) cons
         cons              = ccomps >>= id
         shareBinds x y    = any (flip elem $ map ccBinds y >>= id) $ ccBinds x
         inCC x c          = any (== map fst x) $ map (map fst) c
 
+{-
 -- calculate graph and then connected component of KVGraph
 partitionConstraints :: BindEnv -> [ConsID] -> (ConsGraph, [[ConsID]])
 partitionConstraints env cons  = getConnComponents cons $ makeConsGraph env cons
@@ -456,16 +471,33 @@ partitionFInfo :: FInfo Cinfo -> (ConsGraph, [FInfo Cinfo])
 partitionFInfo finfo =
   let (graph, ccs) = partitionConstraints (bs finfo) (M.toList $ cm finfo) in
   (graph, map (\cons -> finfo { cm = M.fromList cons }) ccs)
+-}
+
+makeKVGraph :: FInfo Cinfo -> KVGraph
+makeKVGraph = kvGraph . kvEdges
+
+isVertexCons :: CVertex -> Bool
+isVertexCons (KVar _) = False
+isVertexCons (Cstr _) = True
+
+partitionFInfo :: FInfo Cinfo -> KVGraph -> [FInfo Cinfo]
+partitionFInfo finfo graph =
+  let part = decompose graph in
+  let conspart = map (map consVertexId . filter isVertexCons) part in
+  let finfopart = map (\consids -> finfo { cm = getCons consids }) conspart in
+  finfopart
+  where consVertexId (Cstr i) = i
+        getCons consids = M.fromList $ filter (flip elem consids . fst) $ M.toList $ cm finfo
 
 -- fault local algo 5: like algo 1, but partition constraint set
 -- into equiv classes that share kvars and variables and run
 -- delta debugging on those equiv classes separately
 -- the solution is the union of the delta debug solutions
 -- of every equiv class
-faultLocal5 :: Handle -> Config -> FInfo Cinfo -> IO ([RealSrcSpan],String)
-faultLocal5 log cfg finfo = do
+faultLocal5 :: Handle -> Config -> FInfo Cinfo -> [Integer] -> KVGraph -> IO ([RealSrcSpan],String)
+faultLocal5 log cfg finfo failedCons graph = do
   -- let (graph,part) = partition' finfo
-  let (graph,part) = partitionFInfo finfo
+  let part= partitionFInfo finfo graph
 
   hPutStr log "Number of partitions:"
   hPrint log $ length part
@@ -484,59 +516,200 @@ faultLocal5 log cfg finfo = do
         return ([]," ")
       else do
         hPutStrLn log "connected component is unsafe. running constraint filtering"
-        faultLocal1 log cfg finfoPart
+        faultLocal1 log cfg finfoPart failedCons graph
 
   let (locs, ids) = unzip results 
   let locs' = L.nub $ locs >>= id
   let ids' = concat ids
   return $ (locs', ids')
 
-{--
+-- test a constraint set along with a failed constraint
+-- this lets us find the cause of failure for the failed constrained
+testConstraints' :: Handle -> Config -> FInfo Cinfo -> [Integer] -> [Integer] -> IO Bool
+testConstraints' log cfg finfo fcons cons = do
+  hPutStrLn log $ "testing constraint set for failed constraints " ++ (show fcons) ++ ":"
+  hPrint log cons
+  let conmap = M.toList $ cm finfo
+  let compCons = filter (\c -> elem (fst c) cons) conmap
+  let finfo' = finfo { cm = M.fromList compCons }
+  Result res _ <- solve cfg finfo'
+  if isSafe res
+    then do
+      hPutStrLn log "safe!"
+      return True
+    else do
+      hPutStrLn log "not safe!"
+      return False
+
+
 -- FL ALGO 6
 
--- Randomly shuffle a list in O(n)
--- from https://wiki.haskell.org/Random_shuffle
-shuffle :: [a] -> IO [a]
-shuffle xs = do
-  ar <- newArray n xs
-  forM [1..n] $ \i -> do
-      j <- randomRIO (i,n)
-      vi <- readArray ar i
-      vj <- readArray ar j
-      writeArray ar j vi
-      return vj
-  where
-    n = length xs
-    newArray :: Int -> [a] -> IO (IOArray Int a)
-    newArray n xs =  newListArray (1,n) xs
+-- make graph symmetrically closed by adding
+-- a transverse edge for every edge
+-- this effectively makes an undirected edge to a directed edge
+-- for dijkstra's algorithm
+saturate :: KVGraph -> KVGraph
+saturate g = map (\(v,v',dests) -> (v,v',L.nub dests)) $ foldr processVertex g g
+  where processVertex (v,_,dests) acc = foldr (processEdge v) acc dests
+        processEdge v dest acc = insertEdge acc (dest,v)
+        insertEdge g' (src,dest) =
+          if src `elem` map fst3 g'
+            then foldr (\e@(v,_,dests) acc ->
+                          if src == v
+                            then (v,v,dest:dests):acc
+                            else e:acc) [] g'
+            else (src,src,[dest]):g'
 
--- fault local algo 6:
--- run constraint filtering several times while shuffling the
--- constraints, and then take the intersection of the results
--- this ensures that if there are multiply minimal failsets,
--- that the algo will find them; and the intersection of these failsets
--- most likely correspond to the bug location since they are the "real cause"
--- if there is only one minimal set, then it will be found several times and
--- its intersection is itself, so it will be returned as normal
-faultLocal6 :: Handle -> Config -> FInfo Cinfo -> IO ([RealSrcSpan],String)
-faultLocal6 log cfg finfo = do
-  shuffles <- sequence $ take 5 $ repeat $ shuffle $ M.toList $ cm finfo
+-- interface
+getConsOrder :: KVGraph -> CVertex-> [(CVertex,Int)]
+getConsOrder g src = M.toList $ execState (getConsOrder_ g src toVisit) initState
+  where initState = M.insert src 0 M.empty
+        toVisit   = map fst3 g
 
-  -- return a list of con ids implicated for each shuffle
-  conslists <- forM (zip [1..] shuffles) $ \(id, cons) -> do
-    hPutStrLn log $ "running filt constraint for shuffle " ++ (show id)
-    sol <- deltaDebug (testConstraints log) cfg finfo () cons []
-    hPutStrLn log "found solution: "
-    hPrint log $ map fst sol
-    return $ map fst sol
+-- this implements dijkstra's algorithm
+-- instead of stopping when a destination node is reached,
+-- this computes the shortest path from the source to every
+-- node in the graph reachable from src
+getConsOrder_ :: KVGraph -> CVertex -> [CVertex] -> State (M.HashMap CVertex Int) ()
+getConsOrder_ g src []        = return ()
+getConsOrder_ g src unvisited = do
+  next <- getNextVertex
+  case next of
+    -- no reachable vertices left, even though there are still
+    -- unvisited vertices. return the result
+    Nothing -> do
+      return ()
+    -- process the next vertex by updating the rank of its neighbors
+    Just (v,rank) -> do
+      let neighbors = getNeighbors v
+      updateRanks (rank+1) neighbors
+      getConsOrder_ g src (v `L.delete` unvisited)
+  where findMin (k,v) Nothing         = if v >= 0 then Just (k,v) else Nothing
+        findMin (k,v) (Just (k',min)) =
+          if v >= 0 && v < min  then Just (k,v) else Just (k',min)
+        -- pick the vertices with the smallest nonnegative rank
+        -- (nonnegative rank means that it is reachable from src)
+        getNextVertex = do
+          ranks <- get 
+          let unvisitedRanks = map (\v -> (v, M.lookupDefault (-1) v ranks)) unvisited
+          return $ foldr findMin Nothing unvisitedRanks
+        -- get vertices adjacent from v
+        getNeighbors v = case L.lookup v (map (\(v,_,d) -> (v,d)) g) of 
+                          Just dests -> dests
+                          Nothing -> []
+        -- update rank of vertices
+        -- only update is new rank is smaller than old
+        updateRanks rank' vs = mapM_ (updateRank rank') vs
+        updateRank rank' v = do
+          ranks <- get
+          let rank = M.lookupDefault (-1) v ranks
+          if rank > rank' || rank < 0
+            then put $ M.insert v rank' ranks
+            else return ()
 
-  -- return the intersection of the con lists returned
-  -- by definition, the intersection of all the con lists is a subset of 
-  -- the first con list; we compute this subset
-  let consids = filter (\con -> all (elem con) $ tail conslists) $ head conslists
-  let cons = filter (\con -> fst con `elem` consids) (M.toList $ cm finfo)
-  return ((uniqueSrcSpans . map (ci_loc . sinfo . snd)) cons, joinStrs " " $ map (show . fst) cons)
---}
+cvToId (Cstr id) = id
+cvToId (KVar _)  = -1 --this is not supposed to be called
+idToCv id = Cstr id
+
+-- order solution constraints by distance to failed constraint
+getRankedConstraints :: Bool -> Int -> Handle -> KVGraph -> [Integer] -> [Integer] -> IO [Integer]
+getRankedConstraints order numSol log satGraph sol fcons = do
+  if order
+    then do
+      let initRanks = foldr (\c acc -> M.insert c 0 acc) M.empty sol
+      let accumRanks = flip execState initRanks (do 
+          -- add up rankings for every failed constraint
+          -- the constraints with the least accumulated rankings
+          -- are the top ones
+          forM_ fcons $ \fconId -> do
+            let ranks = getConsOrder satGraph (idToCv fconId) 
+            let ranks' = filter (isVertexCons . fst) ranks
+            let ranks'' = filter (flip elem sol . cvToId . fst) ranks'
+            let ranks''' = map (\(c,r) -> (cvToId c, r)) ranks''
+            forM_ ranks''' $ \(c,rank) -> do
+              accumRanks <- get
+              let accumRank = M.lookupDefault 0 c accumRanks
+              put $ M.insert c (accumRank+rank) accumRanks)
+
+      let accumRanks' = M.toList accumRanks
+      let ranksTotal = L.sortBy (\a b -> snd a `compare` snd b) accumRanks'
+
+      -- take the rank of the nth constraint, where
+      -- n = numSolConstraints. then take all constraints with
+      -- rank less than or equal to it
+      let cutoff = if numSol > length ranksTotal
+                      then (-1)
+                      else snd $ ranksTotal !! (numSol-1)
+      let ranksCutoff = filter (\(_,r) -> cutoff < 0 || r <= cutoff) ranksTotal
+
+      hPutStrLn log "Ordering for solution constraints: "
+      hPrint log ranksTotal
+
+      return $ map fst ranksCutoff
+
+    else return sol
+
+
+faultLocal6 :: Bool -> Int -> Handle -> Config -> FInfo Cinfo -> [Integer] -> KVGraph -> IO ([RealSrcSpan],String)
+faultLocal6 order numSol log cfg finfo failedCons graph = do
+  {-
+  let graph = finfoToConsGraph finfo
+  let vertices = L.nub $ graph >>= (\(s,e) -> [s,e])
+  let graph' = map (\v -> (v,v,map snd $ filter (\e -> fst e == v) graph)) vertices
+  let (graph'', gmap) = G.graphFromEdges' graph'
+  let ccomps = map (map (fst3 . gmap) . T.flatten) $ G.components graph''
+  let ccomps' = filter (\ccomp -> any (flip elem ccomp) failedCons) ccomps
+  -}
+
+  let satGraph = saturate graph
+  let (graph', gmap) = G.graphFromEdges' satGraph
+  let ccomps = map (map cvToId . filter isVertexCons . map (fst3 . gmap) . T.flatten) $ G.components graph'
+  -- let ccomps = map (map cvToId . map (fst3 . gmap) . T.flatten) $ G.components graph'
+  -- let ccomps' = filter (\ccomp -> any (flip elem ccomp) failedCons) ccomps
+  -- let ccompPairs = map (\con -> (con, head $ filter (elem con) ccomps')) failedCons
+  let ccompPairs = map (\ccomp -> (ccomp, filter (flip elem ccomp) failedCons)) ccomps
+  let ccompPairs' = filter (\(_,cons) -> length cons > 0) ccompPairs
+
+  hPutStr log "Failed constraints:"
+  hPrint log failedCons
+
+  hPutStr log "Number of partitions:"
+  hPrint log $ length ccomps
+  hPutStr log "Number of partitions to check:"
+  hPrint log $ length ccompPairs'
+
+  hPutStrLn log "Saturated KVGraph:"
+  hPrint log satGraph
+  hPutStrLn log "weakly connected comps and failed constraints:"
+  hPrint log ccompPairs
+
+  -- there is a bug in Liquid Haskell where there are no failed constraints
+  -- passed to the fault localization algo even though there are constraints
+  -- that did fail (see KmpIO.hs). this makes FC trace check NO conn comps.
+  -- as a fix, this falls back to regular filter constraints if there are
+  -- not failed constraints found
+  if length ccompPairs' > 0
+    then do
+      results <- forM (uncurry (zip3 [1..]) $ unzip ccompPairs') $ \(i, ccomp, fcons) -> do
+        hPutStrLn log $ "localizing fault for constraints " ++ (show fcons)
+        sol <- deltaDebug (testConstraints' log) cfg finfo fcons ccomp []
+        sol' <- getRankedConstraints order numSol log satGraph sol fcons
+
+        hPutStrLn log $ "found solution for constraints " ++ (show fcons) ++ ": "
+        hPrint log sol'
+
+        let solCons = filter (\c -> elem (fst c) sol') $ M.toList $ cm finfo
+        let infoStr = "(" ++ (show fcons) ++ ", [" ++ (joinStrs " " $ map show sol') ++ "])"
+        return ((uniqueSrcSpans . map (ci_loc . sinfo . snd)) solCons, infoStr)
+
+      let (locs, ids) = unzip results 
+      let locs' = L.nub $ locs >>= id
+      let ids' = joinStrs " " ids
+      return $ (locs', ids')
+
+    else do
+      hPutStrLn log "No failed constraints found. Falling back to filter constraints"
+      faultLocal1 log cfg finfo failedCons graph
 
 
 realSrcSpanToTup :: RealSrcSpan -> (Int,Int,Int,Int)
@@ -568,35 +741,35 @@ nullLocJSON = J.makeObj [("sline",J.showJSON (0 ::Int))
 
 conToJSON :: (Integer, SubC Cinfo) -> J.JSValue
 conToJSON (id, con) = J.makeObj [("id", J.showJSON id)
-                       ,("LHS", J.JSString $ J.toJSString $ show $ slhs con)
-                       ,("RHS", J.JSString $ J.toJSString $ show $ srhs con)
+                       ,("LHS", J.JSString $ J.toJSString $ show $ sr_reft $ slhs con)
+                       ,("RHS", J.JSString $ J.toJSString $ show $ sr_reft $ srhs con)
                        ,("loc", maybe nullLocJSON J.showJSON $ uniqueSrcSpan $ ci_loc $ sinfo con)]
 
+{-
 consGraphToJSON :: ConsGraph -> J.JSValue
 consGraphToJSON graph = J.JSArray $ map edgeToJSON graph
   where edgeToJSON (s,e) = J.makeObj [("source",J.showJSON s),("dest",J.showJSON e)]
+-}
+
+kvGraphToJSON :: KVGraph -> J.JSValue
+kvGraphToJSON graph = J.JSArray [ makeEdge src dest | (src, _, dests) <- graph, dest <- dests, src /= dest]
+  where makeEdge s e = J.makeObj [("source",vertexJSON s), ("dest",vertexJSON e)]
+        makeEdge s e = J.makeObj [("source",vertexJSON s), ("dest",vertexJSON e)]
+        isKVar (KVar _) = True
+        isKVar (Cstr _) = False
+        vertexJSON (KVar (KV k)) = J.JSString $ J.toJSString $ show k
+        vertexJSON (Cstr i) = J.showJSON i
 
 generateFLAnnotation :: [RealSrcSpan] -> A.AnnMap
 generateFLAnnotation locs = A.Ann { A.types = M.empty, A.errors = errlocs, A.status = A.Unsafe }
   where errlocs = map (\loc -> (srcSpanStartLoc loc, srcSpanEndLoc loc, "possible error location")) locs
 
--- I don't want to add the tuple package as a dependency
--- so here are some alternatives ... 
-fst3 :: (a,b,c) -> a
-fst3 (x,_,_) = x
-
-snd3 :: (a,b,c) -> b
-snd3 (_,y,_) = y
-
-thd3 :: (a,b,c) -> c
-thd3 (_,_,z) = z
-
 liquidDir   = ".liquid/"
 liquidflDir = ".liquidfl/"
 fqExt       = ".fq"
 
-runFaultLocal :: Config -> FInfo Cinfo -> IO ()
-runFaultLocal cfg finfo = do
+runFaultLocal :: [Integer] -> Config -> FInfo Cinfo -> IO ()
+runFaultLocal failedCons cfg finfo = do
   let sfile = srcFile cfg
   {-
   t <- round `liftM` getPOSIXTime
@@ -614,9 +787,11 @@ runFaultLocal cfg finfo = do
   copyFile (liquidDir ++ sfile ++ fqExt) (flDir ++ sfile ++ fqExt)
 
   -- let algos = [("Filter constraints", faultLocal1), ("Erase constraint refinements", faultLocal2), ("Erase binding refinements", faultLocal4), ("Filter constraints in connected components", faultLocal5)]
-  let algos = [("Filter constraints", faultLocal1),("Filter constraints in connected components", faultLocal5)]
+  -- let algos = [("Filter constraints", faultLocal1),("Filter constraints in connected components", faultLocal5), ("Reduce search space", faultLocal6)]
+  let algos = [("Filter constraints", faultLocal1),("FC trace with cutoff=5", faultLocal6 True 5),("FC trace with cutoff=3", faultLocal6 True 3), ("FC trace with no cutoff", faultLocal6 False 0)]
 
   -- output log of algorithms
+  let graph = makeKVGraph finfo
   let logname = flDir ++ sfile ++ ".fllog"
   results <- withFile logname WriteMode $ \log -> do
     forM algos $ \(name, fl) -> do
@@ -624,7 +799,7 @@ runFaultLocal cfg finfo = do
       hPutStrLn log name
       hPutStrLn log "####################"
       start <- getCPUTime
-      (locs, info) <- fl log cfg finfo
+      (locs, info) <- fl log cfg finfo failedCons graph
       end <- getCPUTime
       let diff = (fromIntegral (end - start)) / (10^12) :: Double
       return (locs, info, diff)
@@ -638,7 +813,8 @@ runFaultLocal cfg finfo = do
   let algoResults = L.zip4 algoNames algoLocs algoInfo algoTime
   let jsonRes = J.JSArray $ map flResultToJSON algoResults
   let jsonCons = J.JSArray $ map conToJSON $ M.toList $ cm finfo
-  let jsonGraph = consGraphToJSON $ makeConsGraph (bs finfo) (M.toList $ cm finfo)
+  let jsonGraph = kvGraphToJSON graph
+  -- let jsonGraph = kvGraphToJSON $ makeKVGraph finfo
   let jsonObj = J.makeObj [("results", jsonRes), ("cons",jsonCons), ("graph", jsonGraph)]
   let flname = flDir ++ sfile ++ ".flout"
   withFile flname WriteMode $ \file -> do
