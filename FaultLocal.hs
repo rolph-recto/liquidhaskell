@@ -61,28 +61,77 @@ isSafe _    = False
 
 -- higher order delta debugging algo
 -- just needs a test function for it to work
-deltaDebug :: (Config -> FInfo Cinfo -> b -> [c] -> IO Bool) -> Config -> FInfo Cinfo -> b -> [c] -> [c] -> IO [c]
-deltaDebug testSet cfg finfo ddata set r = do
+deltaDebug :: Eq c => (Config -> FInfo Cinfo -> b -> [c] -> IO Bool) -> Config -> FInfo Cinfo -> b -> [c] -> [c] -> IO [c]
+deltaDebug test cfg finfo ddata set r = do
   if length set == 1
     then return set
     else do
       let (s1, s2) = splitAt ((length set) `div` 2) set
-      test1 <- testSet cfg finfo ddata (s1 ++ r)
+      test1 <- test cfg finfo ddata (s1 ++ r)
       if not test1
-        then deltaDebug testSet cfg finfo ddata s1 r
+        then deltaDebug test cfg finfo ddata s1 r
         else do
-          test2 <- testSet cfg finfo ddata (s2 ++ r)
+          test2 <- test cfg finfo ddata (s2 ++ r)
           if not test2
-            then deltaDebug testSet cfg finfo ddata s2 r
+            then deltaDebug test cfg finfo ddata s2 r
             else do
-              d1 <- deltaDebug testSet cfg finfo ddata s1 (s2 ++ r)
-              d2 <- deltaDebug testSet cfg finfo ddata s2 (s1 ++ r)
+              d1 <- deltaDebug test cfg finfo ddata s1 (s2 ++ r)
+              d2 <- deltaDebug test cfg finfo ddata s2 (s1 ++ r)
               return (d1 ++ d2)
 
-testConstraints :: Handle -> Config -> FInfo Cinfo -> () -> [(Integer, SubC Cinfo)] -> IO Bool
-testConstraints log cfg finfo _ cons  = do
+-- split a list into lists of size n
+splitEvery :: Int -> [a] -> [[a]]
+splitEvery _ [] = []
+splitEvery n xs = as : splitEvery n bs 
+  where (as,bs) = splitAt n xs
+
+-- split a list into n lists
+splitInto :: Int -> [a] -> [[a]]
+splitInto n a = splitEvery ((length a) `div` n) a
+
+complement :: Eq a => [a] -> [a] -> [a]
+complement a b = filter (\x -> not $ x `elem` b) a
+
+-- 1-minimizing delta debugging algorithm
+-- see ddmin in https://www.st.cs.uni-saarland.de/papers/tse2002/tse2002.pdf
+deltaDebug2 :: Eq c => (Config -> FInfo Cinfo -> b -> [c] -> IO Bool) -> Config -> FInfo Cinfo -> b -> [c] -> Int -> IO [c]
+deltaDebug2 test cfg finfo ddata set n = do
+  if length set < 2
+    then return set
+    else do
+      let subsets = splitInto n set
+      -- test subsets
+      res1 <- foldM testSubset Nothing subsets
+      case res1 of
+        -- test fails for some subset
+        Just failset -> deltaDebug2 test cfg finfo ddata failset 2
+        Nothing -> do
+          -- test complements
+          res2 <- foldM testSubset Nothing (map (complement set) subsets)
+          case res2 of
+            Just failset2 -> deltaDebug2 test cfg finfo ddata failset2 $ max (n-1) 2
+            Nothing -> do
+              if length set > n
+                -- increase granularity
+                then deltaDebug2 test cfg finfo ddata set $ min (length set) (2*n)
+                -- nothing else to do; return set
+                else return set
+  where testSubset prev subset = do
+          case prev of
+            -- stop once we find a failing subset
+            Just _ -> do
+              return prev
+            Nothing -> do
+              res <- test cfg finfo ddata subset
+              if not res
+                then return (Just subset)
+                else return Nothing
+
+testConstraints :: Handle -> Config -> FInfo Cinfo -> () -> [Integer] -> IO Bool
+testConstraints log cfg finfo _ consid = do
   hPutStrLn log "testing constraint set "
-  hPrint log $ map fst cons
+  hPrint log consid
+  let cons = filter (flip elem consid . fst) $ M.toList $ cm finfo
   let finfo' = finfo { cm = M.fromList cons }
   Result res _ <- solve cfg finfo'
   if isSafe res
@@ -96,11 +145,12 @@ testConstraints log cfg finfo _ cons  = do
 -- fault local algo 1: remove constraints
 faultLocal1 :: Handle -> Config -> FInfo Cinfo -> [Integer] -> KVGraph -> IO ([RealSrcSpan], String)
 faultLocal1 log cfg finfo failedCons graph = do
-  let cons = M.toList $ cm finfo
-  sol <- deltaDebug (testConstraints log) cfg finfo () cons []
+  let consid = map fst $ M.toList $ cm finfo
+  sol <- deltaDebug (testConstraints log) cfg finfo () consid []
   hPutStrLn log "found solution: "
-  hPrint log $ map fst sol
-  return ((uniqueSrcSpans . map (ci_loc . sinfo . snd)) sol, joinStrs " " $ map (show . fst) sol)
+  hPrint log sol
+  let solCons = filter (flip elem sol . fst) $ M.toList $ cm finfo
+  return ((uniqueSrcSpans . map (ci_loc . sinfo . snd)) solCons, joinStrs " " $ map show sol)
 
 
 ----- FAULT LOCAL ALGO 2
@@ -509,7 +559,7 @@ faultLocal5 log cfg finfo failedCons graph = do
     -- unsatisfiable constraints
     hPutStrLn log $ "testing partition " ++ (show i)
 
-    partSafe <- testConstraints log cfg finfoPart () $ M.toList $ cm finfoPart
+    partSafe <- testConstraints log cfg finfoPart () $ map fst $ M.toList $ cm finfoPart
     if partSafe
       then do
         hPutStrLn log "connected component is safe. skipping "
@@ -712,6 +762,77 @@ faultLocal6 order numSol log cfg finfo failedCons graph = do
       faultLocal1 log cfg finfo failedCons graph
 
 
+-- fault local algo 7: filterConstraints with ddmin
+faultLocal7 :: Handle -> Config -> FInfo Cinfo -> [Integer] -> KVGraph -> IO ([RealSrcSpan], String)
+faultLocal7 log cfg finfo failedCons graph = do
+  let consid = map fst $ M.toList $ cm finfo
+  sol <- deltaDebug2 (testConstraints log) cfg finfo () consid 2
+  hPutStrLn log "found solution: "
+  hPrint log sol
+  let solCons = filter (flip elem sol . fst) $ M.toList $ cm finfo
+  return ((uniqueSrcSpans . map (ci_loc . sinfo . snd)) solCons, joinStrs " " $ map show sol)
+
+faultLocal8 :: Bool -> Int -> Handle -> Config -> FInfo Cinfo -> [Integer] -> KVGraph -> IO ([RealSrcSpan],String)
+faultLocal8 order numSol log cfg finfo failedCons graph = do
+  {-
+  let graph = finfoToConsGraph finfo
+  let vertices = L.nub $ graph >>= (\(s,e) -> [s,e])
+  let graph' = map (\v -> (v,v,map snd $ filter (\e -> fst e == v) graph)) vertices
+  let (graph'', gmap) = G.graphFromEdges' graph'
+  let ccomps = map (map (fst3 . gmap) . T.flatten) $ G.components graph''
+  let ccomps' = filter (\ccomp -> any (flip elem ccomp) failedCons) ccomps
+  -}
+
+  let satGraph = saturate graph
+  let (graph', gmap) = G.graphFromEdges' satGraph
+  let ccomps = map (map cvToId . filter isVertexCons . map (fst3 . gmap) . T.flatten) $ G.components graph'
+  -- let ccomps = map (map cvToId . map (fst3 . gmap) . T.flatten) $ G.components graph'
+  -- let ccomps' = filter (\ccomp -> any (flip elem ccomp) failedCons) ccomps
+  -- let ccompPairs = map (\con -> (con, head $ filter (elem con) ccomps')) failedCons
+  let ccompPairs = map (\ccomp -> (ccomp, filter (flip elem ccomp) failedCons)) ccomps
+  let ccompPairs' = filter (\(_,cons) -> length cons > 0) ccompPairs
+
+  hPutStr log "Failed constraints:"
+  hPrint log failedCons
+
+  hPutStr log "Number of partitions:"
+  hPrint log $ length ccomps
+  hPutStr log "Number of partitions to check:"
+  hPrint log $ length ccompPairs'
+
+  hPutStrLn log "Saturated KVGraph:"
+  hPrint log satGraph
+  hPutStrLn log "weakly connected comps and failed constraints:"
+  hPrint log ccompPairs
+
+  -- there is a bug in Liquid Haskell where there are no failed constraints
+  -- passed to the fault localization algo even though there are constraints
+  -- that did fail (see KmpIO.hs). this makes FC trace check NO conn comps.
+  -- as a fix, this falls back to regular filter constraints if there are
+  -- not failed constraints found
+  if length ccompPairs' > 0
+    then do
+      results <- forM (uncurry (zip3 [1..]) $ unzip ccompPairs') $ \(i, ccomp, fcons) -> do
+        hPutStrLn log $ "localizing fault for constraints " ++ (show fcons)
+        sol <- deltaDebug2 (testConstraints' log) cfg finfo fcons ccomp 2
+        sol' <- getRankedConstraints order numSol log satGraph sol fcons
+
+        hPutStrLn log $ "found solution for constraints " ++ (show fcons) ++ ": "
+        hPrint log sol'
+
+        let solCons = filter (\c -> elem (fst c) sol') $ M.toList $ cm finfo
+        let infoStr = "(" ++ (show fcons) ++ ", [" ++ (joinStrs " " $ map show sol') ++ "])"
+        return ((uniqueSrcSpans . map (ci_loc . sinfo . snd)) solCons, infoStr)
+
+      let (locs, ids) = unzip results 
+      let locs' = L.nub $ locs >>= id
+      let ids' = joinStrs " " ids
+      return $ (locs', ids')
+
+    else do
+      hPutStrLn log "No failed constraints found. Falling back to filter constraints"
+      faultLocal7 log cfg finfo failedCons graph
+
 realSrcSpanToTup :: RealSrcSpan -> (Int,Int,Int,Int)
 realSrcSpanToTup loc = (sline,scol,eline,ecol)
   where sline = srcSpanStartLine loc
@@ -788,7 +909,7 @@ runFaultLocal failedCons cfg finfo = do
 
   -- let algos = [("Filter constraints", faultLocal1), ("Erase constraint refinements", faultLocal2), ("Erase binding refinements", faultLocal4), ("Filter constraints in connected components", faultLocal5)]
   -- let algos = [("Filter constraints", faultLocal1),("Filter constraints in connected components", faultLocal5), ("Reduce search space", faultLocal6)]
-  let algos = [("Filter constraints", faultLocal1),("FC trace with cutoff=5", faultLocal6 True 5),("FC trace with cutoff=3", faultLocal6 True 3), ("FC trace with no cutoff", faultLocal6 False 0)]
+  let algos = [("Filter constraints", faultLocal1),("Filter constraints with ddmin", faultLocal7), ("filterConstraintsWCC", faultLocal6 False 0),("filterConstraintsWCC with ddmin", faultLocal8 False 0)]
 
   -- output log of algorithms
   let graph = makeKVGraph finfo
